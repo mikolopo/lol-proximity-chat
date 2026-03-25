@@ -87,6 +87,7 @@ function App() {
   const [streamingPlayers, setStreamingPlayers] = useState<Set<string>>(new Set());
   const [captureSources, setCaptureSources] = useState<{id: string, name: string}[]>([]);
   const [selectedCaptureSource, setSelectedCaptureSource] = useState<string>("window_lol");
+  const [showStreamPickerModal, setShowStreamPickerModal] = useState(false);
 
   // Champion avatar mapping (playerName -> championName) for DDragon images
   const [peerChampions, setPeerChampions] = useState<Record<string, string>>({});
@@ -560,19 +561,27 @@ function App() {
   
   const toggleStreaming = async () => {
     if (!voiceManagerRef.current || !sidecarChildRef.current) return;
-    
-    const nextState = !isStreaming;
-    setIsStreaming(nextState);
-    voiceManagerRef.current.setStreaming(nextState);
-    
-    if (nextState) {
-        await sidecarChildRef.current.write(JSON.stringify({ type: "start_stream", data: { source_id: selectedCaptureSource } }) + "\n");
-        setLogs(l => [...l.slice(-50), "[UI] Started Streaming Mode."]);
-    } else {
+
+    if (isStreaming) {
+        setIsStreaming(false);
+        voiceManagerRef.current.setStreaming(false);
         await sidecarChildRef.current.write(JSON.stringify({ type: "stop_stream", data: {} }) + "\n");
         setLogs(l => [...l.slice(-50), "[UI] Stopped Streaming Mode."]);
+    } else {
+        setShowStreamPickerModal(true);
     }
   };
+
+  const startStreamWithSource = async (sourceId: string) => {
+    if (!voiceManagerRef.current || !sidecarChildRef.current) return;
+    setSelectedCaptureSource(sourceId);
+    setShowStreamPickerModal(false);
+    setIsStreaming(true);
+    voiceManagerRef.current.setStreaming(true);
+    await sidecarChildRef.current.write(JSON.stringify({ type: "start_stream", data: { source_id: sourceId } }) + "\n");
+    setLogs(l => [...l.slice(-50), "[UI] Started Streaming Mode."]);
+  };
+
 
   const sendChatMessage = () => {
     const msg = chatInput.trim();
@@ -679,6 +688,37 @@ function App() {
         onClick={() => contextMenu && setContextMenu(null)}
     >
       
+      {/* STREAM SOURCE PICKER MODAL */}
+      {showStreamPickerModal && (
+        <div className="absolute inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+          <div className="bg-[#36393f] w-full max-w-sm rounded-lg shadow-2xl flex flex-col pt-6 pb-4 px-4 relative">
+            <button
+              onClick={() => setShowStreamPickerModal(false)}
+              className="absolute top-4 right-4 text-text-muted hover:text-white"
+            ><X size={20} /></button>
+            <h2 className="text-xl font-bold text-white mb-1">Share Your Screen</h2>
+            <p className="text-sm text-text-muted mb-4">Pick a source to stream to the room.</p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => startStreamWithSource("window_lol")}
+                className="w-full py-2.5 px-3 text-left rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-accent transition-colors"
+              >
+                League of Legends Window
+              </button>
+              {captureSources.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => startStreamWithSource(s.id)}
+                  className="w-full py-2.5 px-3 text-left rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-accent transition-colors truncate"
+                >
+                  {s.name || s.id}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ADD ROOM MODAL OVERLAY */}
       {showAddModal && (
         <div className="absolute inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
@@ -888,8 +928,7 @@ function App() {
                         >
                             {isCheckingUpdate ? "Checking..." : "Check for Updates"}
                         </button>
-                        {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}
-                    </div>
+                        {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}`r`n                         <p className="text-xs text-[#8e9297] mt-3">Version 1.0.2</p>`r`n                    </div>
                  </div>
                  
                   <div className="pt-4 border-t border-[#202225]">

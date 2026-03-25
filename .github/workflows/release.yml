@@ -31,6 +31,22 @@ jobs:
         run: npm install
         working-directory: desktop
 
+      - name: Download Python worker from release assets
+        shell: pwsh
+        run: |
+          $exeName = "python-worker-x86_64-pc-windows-msvc.exe"
+          $dest = "desktop/src-tauri/$exeName"
+          Write-Host "Downloading pre-built Python worker..."
+          $url = "https://github.com/${{ github.repository }}/releases/download/python-worker-latest/$exeName"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $dest -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" }
+            Write-Host "Downloaded successfully."
+          } catch {
+            Write-Host "ERROR: Could not download $exeName from release 'python-worker-latest'."
+            Write-Host "Please upload the built exe to a GitHub Release tagged 'python-worker-latest' first."
+            exit 1
+          }
+
       - name: Build and publish release
         uses: tauri-apps/tauri-action@v0
         env:
