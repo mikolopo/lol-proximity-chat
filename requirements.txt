@@ -1,0 +1,15 @@
+opencv-python>=4.9.0
+numpy>=1.26.0
+mss>=9.0.1
+Pillow>=10.0.0
+opencv-python>=4.9.0
+numpy>=1.26.0
+mss>=9.0.1
+Pillow>=10.0.0
+pywin32>=306
+PyQt6>=6.6.0
+python-socketio[client]>=5.10.0
+requests>=2.31.0
+ultralytics>=8.0.0
+sounddevice>=0.4.6
+opuslib-next>=1.1.5
