@@ -278,6 +278,8 @@ function App() {
                if (voiceManagerRef.current) {
                  voiceManagerRef.current.sendStreamFrame(event.data.frame, event.data.width, event.data.height);
                }
+               // Show local preview
+               setCurrentStream({ name: playerName, frame: event.data.frame, width: event.data.width, height: event.data.height });
             } else if (event.type === 'capture_sources') {
                setCaptureSources(event.data || []);
             } else if (event.type === 'log') {
