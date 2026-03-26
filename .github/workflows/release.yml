@@ -67,18 +67,11 @@ jobs:
           $repo    = "${{ github.repository }}"
           $baseUrl = "https://github.com/$repo/releases/download/$tag"
 
-          # Write private key to a temp file
-          $keyPath = "$env:TEMP\tauri-signing.key"
-          $env:TAURI_SIGNING_PRIVATE_KEY | Set-Content $keyPath -Encoding utf8 -NoNewline
-
-          # Helper to zip + sign a file
+          # Helper to zip + sign a file (TAURI_SIGNING_PRIVATE_KEY env var is already set)
           function Sign-Bundle($srcPath, $zipPath) {
             Compress-Archive -Path $srcPath -DestinationPath $zipPath -CompressionLevel Optimal -Force
             $tauriBin = "desktop/node_modules/.bin/tauri"
-            & $tauriBin signer sign `
-              --private-key-path $keyPath `
-              --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD `
-              $zipPath
+            & $tauriBin signer sign --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $zipPath
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
           }
 
