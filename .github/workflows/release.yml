@@ -80,7 +80,8 @@ jobs:
 
           Sign-Bundle $msiSrc $msiZip
 
-          $msiSig = (Get-Content "$msiZip.sig" -Raw).Trim()
+          $rawSig = (Get-Content "$msiZip.sig" -Raw).Trim()
+          $msiSig = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rawSig))
 
           # Build latest.json
           $latestJson = @{
