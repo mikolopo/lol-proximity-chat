@@ -63,14 +63,16 @@ jobs:
         run: |
           $tag     = "${{ github.ref_name }}"
           $version = $tag.TrimStart("v")
-          $bundle  = "desktop/src-tauri/target/release/bundle"
+          $targetDir = "desktop/src-tauri/target"
           $repo    = "${{ github.repository }}"
           $baseUrl = "https://github.com/$repo/releases/download/$tag"
 
-          # Dynamically find the .zip.sig file (could be in nsis or msi dir)
-          $sigFile = Get-ChildItem -Path $bundle -Filter "*.zip.sig" -Recurse | Select-Object -First 1
+          # Dynamically find the .zip.sig file in the entire target dir
+          $sigFile = Get-ChildItem -Path $targetDir -Filter "*.zip.sig" -Recurse | Select-Object -First 1
           if (-not $sigFile) {
-            Write-Error "Could not find .zip.sig file in bundle directory!"
+            Write-Error "Could not find .zip.sig file in $targetDir directory!"
+            Write-Host "Listing all .zip and .exe files in $targetDir for debugging:"
+            Get-ChildItem -Path $targetDir -Include "*.zip", "*.exe", "*.msi", "*.nsis*" -Recurse | Select-Object FullName
             exit 1
           }
           $zipFile = $sigFile.FullName.Substring(0, $sigFile.FullName.Length - 4)
