@@ -52,51 +52,5 @@ jobs:
           releaseBody: "See the assets below to download and install this version."
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: false
-
-      - name: Sign bundles and upload latest.json
-        shell: pwsh
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-        run: |
-          $tag     = "${{ github.ref_name }}"
-          $version = $tag.TrimStart("v")
-          $targetDir = "desktop/src-tauri/target"
-          $repo    = "${{ github.repository }}"
-          $baseUrl = "https://github.com/$repo/releases/download/$tag"
-
-          # Dynamically find the .zip.sig file in the entire target dir
-          $sigFile = Get-ChildItem -Path $targetDir -Filter "*.zip.sig" -Recurse | Select-Object -First 1
-          if (-not $sigFile) {
-            Write-Error "Could not find .zip.sig file in $targetDir directory!"
-            Write-Host "Listing all .zip and .exe files in $targetDir for debugging:"
-            Get-ChildItem -Path $targetDir -Include "*.zip", "*.exe", "*.msi", "*.nsis*" -Recurse | Select-Object FullName
-            exit 1
-          }
-          $zipFile = $sigFile.FullName.Substring(0, $sigFile.FullName.Length - 4)
-          $zipName = [System.IO.Path]::GetFileName($zipFile)
-
-          $msiSig = (Get-Content $sigFile.FullName -Raw).Trim()
-
-          # Build latest.json
-          $latestJson = @{
-            version  = $version
-            notes    = ""
-            pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
-            platforms = @{
-              "windows-x86_64" = @{
-                signature = $msiSig
-                url       = "$baseUrl/$zipName"
-              }
-            }
-          } | ConvertTo-Json -Depth 10
-
-          $latestJson | Set-Content "latest.json" -Encoding utf8
-
-          # Upload signed zip and latest.json
-          gh release upload $tag $zipFile --clobber --repo $repo
-          gh release upload $tag latest.json --clobber --repo $repo
-
+          includeUpdaterJson: true
 
