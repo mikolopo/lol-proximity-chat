@@ -77,12 +77,20 @@ jobs:
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
           }
           
-          $nsisSrc  = "$bundle/nsis/LoLProximityChat_${version}_x64_setup.exe"
-          $nsisZip  = "$bundle/nsis/LoLProximityChat_${version}_x64_setup.exe.zip"
+          # Dynamically find the .exe or .msi installer (Tauri naming conventions change slightly between versions)
+          $installer = Get-ChildItem -Path $bundle -Include "*.exe", "*.msi" -Recurse | Where-Object { $_.Name -match "LoLProximityChat" -and -not ($_.Name -match "wix") } | Sort-Object Length -Descending | Select-Object -First 1
+          if (-not $installer) {
+            Write-Error "Could not find any .exe or .msi installer in $bundle!"
+            exit 1
+          }
           
-          Sign-Bundle $nsisSrc $nsisZip
+          $srcPath = $installer.FullName
+          $zipPath = "$srcPath.zip"
+          $zipName = [System.IO.Path]::GetFileName($zipPath)
           
-          $nsisSig = (Get-Content "$nsisZip.sig" -Raw).Trim()
+          Sign-Bundle $srcPath $zipPath
+          
+          $sig = (Get-Content "$zipPath.sig" -Raw).Trim()
           
           # Build latest.json
           $latestJson = @{
@@ -91,8 +99,8 @@ jobs:
             pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
             platforms = @{
               "windows-x86_64" = @{
-                signature = $nsisSig
-                url       = "$baseUrl/LoLProximityChat_${version}_x64_setup.exe.zip"
+                signature = $sig
+                url       = "$baseUrl/$zipName"
               }
             }
           } | ConvertTo-Json -Depth 10
@@ -100,6 +108,6 @@ jobs:
           $latestJson | Set-Content "latest.json" -Encoding utf8
           
           # Upload signed zip and latest.json
-          gh release upload $tag $nsisZip --clobber --repo $repo
+          gh release upload $tag $zipPath --clobber --repo $repo
           gh release upload $tag latest.json --clobber --repo $repo
 
