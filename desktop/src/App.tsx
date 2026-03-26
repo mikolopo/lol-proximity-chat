@@ -556,7 +556,12 @@ function App() {
         }
         
     } catch (err: any) {
-        setLogs(l => [...l.slice(-50), `[UI] Microphone connection failed: ${err.message || err}`]);
+        let errorMsg = err.message || err.toString();
+        if (errorMsg.includes('Permission denied') || err.name === 'NotAllowedError') {
+            errorMsg = "Microphone access denied. Please check Windows Settings -> Privacy & security -> Microphone -> 'Allow desktop apps to access your microphone'.";
+        }
+        setLogs(l => [...l.slice(-50), `[UI] Microphone connection failed: ${errorMsg}`]);
+        setIsConnected(false);
     }
   };
   
@@ -641,12 +646,27 @@ function App() {
   };
   
   const toggleMicTest = async () => {
-      if (!voiceManagerRef.current) return;
+      // If we are not connected to a room, temporarily create a VoiceManager just for the test
+      if (!voiceManagerRef.current) {
+          const normalizedUrl = backendUrl.startsWith('http') ? backendUrl : `http://${backendUrl}`;
+          voiceManagerRef.current = new VoiceManager(normalizedUrl);
+      }
+      
       if (isMicTesting) {
           setIsMicTesting(false);
           await voiceManagerRef.current.toggleMicTest(false, "", "");
+          // Clean up the temporary VoiceManager if we are not actively connected to a room
+          if (!isConnected) {
+              voiceManagerRef.current.disconnect();
+              voiceManagerRef.current = null;
+          }
       } else {
           setIsMicTesting(true);
+          // Sync current UI settings to the VoiceManager before starting the test
+          voiceManagerRef.current.setNoiseSuppression(noiseSuppression);
+          voiceManagerRef.current.setNoiseGate(noiseGate);
+          voiceManagerRef.current.setMicVolume(micVolume);
+          
           await voiceManagerRef.current.toggleMicTest(true, selectedMic, selectedSpeaker);
       }
   };

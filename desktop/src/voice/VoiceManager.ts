@@ -177,8 +177,9 @@ export class VoiceManager {
   
   public setMicVolume(vol: number) {
       this.micVolume = vol;
-      if (this.micGainNode) this.micGainNode.gain.value = vol;
-      if (this.testMicGainNode) this.testMicGainNode.gain.value = vol;
+      // Multiply by 0.7 to globally reduce microphone capture gain, preventing clipping
+      if (this.micGainNode) this.micGainNode.gain.value = vol * 0.7;
+      if (this.testMicGainNode) this.testMicGainNode.gain.value = vol * 0.7;
   }
 
   public setPeerVolume(peerId: string, vol: number) {
@@ -492,7 +493,7 @@ export class VoiceManager {
       
       const source = this.audioContext.createMediaStreamSource(this.stream);
       this.micGainNode = this.audioContext.createGain();
-      this.micGainNode.gain.value = this.micVolume;
+      this.micGainNode.gain.value = this.micVolume * 0.7;
       
       // ──── CAPTURE: Raw PCM float32 via ScriptProcessorNode ────
       // 4096 samples (~85ms @ 48kHz) - larger buffer is more stable and reduces CPU overhead
@@ -718,11 +719,17 @@ export class VoiceManager {
       
       const constraints: any = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, sampleRate: 48000, channelCount: 1 };
       if (micId && micId !== "default") constraints.deviceId = { exact: micId };
-      this.testStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      
+      try {
+          this.testStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      } catch (err: any) {
+          console.error("Mic test access denied or error:", err);
+          throw new Error("Permission denied. Check Windows Privacy -> Microphone.");
+      }
       
       const source = this.testAudioContext.createMediaStreamSource(this.testStream);
       this.testMicGainNode = this.testAudioContext.createGain();
-      this.testMicGainNode.gain.value = this.micVolume;
+      this.testMicGainNode.gain.value = this.micVolume * 0.7;
       
       this.testSpeakerGainNode = this.testAudioContext.createGain();
       this.testSpeakerGainNode.gain.value = this.headphoneVolume;
