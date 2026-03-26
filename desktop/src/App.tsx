@@ -919,7 +919,7 @@ function App() {
                             {isCheckingUpdate ? "Checking..." : "Check for Updates"}
                         </button>
                         {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}
-                         <p className="text-xs text-[#8e9297] mt-3">Version 1.0.2</p>
+                         <p className="text-xs text-[#8e9297] mt-3">Version 1.0.3</p>
                     </div>
                  </div>
                  
