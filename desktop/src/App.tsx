@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Settings, Mic, Headphones, Monitor, X, Plus, MicOff, LogIn, Send } from "lucide-react";
 import { Command } from "@tauri-apps/plugin-shell";
 import { check } from "@tauri-apps/plugin-updater";
+import { getVersion } from "@tauri-apps/api/app";
 import { VoiceManager } from "./voice/VoiceManager";
 
 // Simple oscillator beep for join/leave notifications
@@ -41,6 +42,11 @@ function App() {
   const logEndRef = useRef<HTMLDivElement | null>(null);
   const [isDetecting, setIsDetecting] = useState(false);
   const sidecarChildRef = useRef<any>(null);
+  const [appVersion, setAppVersion] = useState<string>("");
+
+  useEffect(() => {
+    getVersion().then(setAppVersion).catch(e => setAppVersion("Unknown"));
+  }, []);
 
   // Chat State — per-room message history
   const [allChatMessages, setAllChatMessages] = useState<Record<string, {sender: string, message: string, timestamp: number}[]>>({});
@@ -541,6 +547,9 @@ function App() {
   };
   
   const handleDisconnect = () => {
+    if (isStreaming) {
+       toggleStreaming();
+    }
     if (voiceManagerRef.current) {
         voiceManagerRef.current.disconnect();
         voiceManagerRef.current = null;
@@ -944,7 +953,7 @@ function App() {
                             {isCheckingUpdate ? "Checking..." : "Check for Updates"}
                         </button>
                         {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}
-                         <p className="text-xs text-[#8e9297] mt-3">Version 1.0.3</p>
+                         <p className="text-xs text-[#8e9297] mt-3">Version {appVersion || "Loading..."}</p>
                     </div>
                  </div>
                  
@@ -1435,10 +1444,19 @@ function App() {
                              <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 bg-accent">
                                 {playerName.substring(0,2)}
                              </div>
-                             <div className="flex flex-col">
+                             <div className="flex flex-col flex-1 truncate">
                                 <span className="text-sm font-medium text-white">{playerName}</span>
                                 <span className="text-[10px] text-[#3ba55c] font-semibold">You{localChampion ? ` (${localChampion})` : ''}</span>
                              </div>
+                             {isStreaming && (
+                                <button 
+                                   onClick={(e) => { e.stopPropagation(); setWatchedStream(watchedStream === playerName ? null : playerName); }}
+                                   className={`p-1 px-2 text-[9px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === playerName ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
+                                   title={watchedStream === playerName ? "Stop watching preview" : "Preview stream"}
+                                >
+                                   <Monitor size={10} /> {watchedStream === playerName ? 'PREVIEW' : 'LIVE'}
+                                </button>
+                             )}
                           </div>
                           {[...knownPeers].filter(p => p !== playerName && p !== localChampion).map(peer => (
                              <div key={peer} 

@@ -78,10 +78,7 @@ jobs:
           $msiSrc  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi"
           $msiZip  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi.zip"
 
-          Sign-Bundle $msiSrc $msiZip
-
-          $rawSig = (Get-Content "$msiZip.sig" -Raw).Trim()
-          $msiSig = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($rawSig))
+          $msiSig = (Get-Content "$msiZip.sig" -Raw).Trim()
 
           # Build latest.json
           $latestJson = @{
