@@ -69,18 +69,20 @@ jobs:
           
           # Helper to zip + sign a file (TAURI_SIGNING_PRIVATE_KEY env var is already set)
           function Sign-Bundle($srcPath, $zipPath) {
-            7z a -tzip $zipPath $srcPath
+            Write-Host "Zipping $srcPath to $zipPath using standard format..."
+            Compress-Archive -Path $srcPath -DestinationPath $zipPath -Force
+            Write-Host "Signing..."
             $tauriBin = "desktop/node_modules/.bin/tauri"
             & $tauriBin signer sign --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $zipPath
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
           }
           
-          $msiSrc  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi"
-          $msiZip  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi.zip"
+          $nsisSrc  = "$bundle/nsis/LoLProximityChat_${version}_x64_setup.exe"
+          $nsisZip  = "$bundle/nsis/LoLProximityChat_${version}_x64_setup.exe.zip"
           
-          Sign-Bundle $msiSrc $msiZip
+          Sign-Bundle $nsisSrc $nsisZip
           
-          $msiSig = (Get-Content "$msiZip.sig" -Raw).Trim()
+          $nsisSig = (Get-Content "$nsisZip.sig" -Raw).Trim()
           
           # Build latest.json
           $latestJson = @{
@@ -89,8 +91,8 @@ jobs:
             pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
             platforms = @{
               "windows-x86_64" = @{
-                signature = $msiSig
-                url       = "$baseUrl/LoLProximityChat_${version}_x64_en-US.msi.zip"
+                signature = $nsisSig
+                url       = "$baseUrl/LoLProximityChat_${version}_x64_setup.exe.zip"
               }
             }
           } | ConvertTo-Json -Depth 10
@@ -98,6 +100,6 @@ jobs:
           $latestJson | Set-Content "latest.json" -Encoding utf8
           
           # Upload signed zip and latest.json
-          gh release upload $tag $msiZip --clobber --repo $repo
+          gh release upload $tag $nsisZip --clobber --repo $repo
           gh release upload $tag latest.json --clobber --repo $repo
 
