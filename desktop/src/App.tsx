@@ -113,6 +113,15 @@ function App() {
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, peerId: string } | null>(null);
 
+  // Stream watching state
+  const watchedStreamRef = useRef<string | null>(null);
+  const [watchedStream, _setWatchedStream] = useState<string | null>(null);
+  const setWatchedStream = (s: string | null) => {
+      watchedStreamRef.current = s;
+      _setWatchedStream(s);
+      setCurrentStream(null);
+  };
+
   // Updater State
   const [updateStatus, setUpdateStatus] = useState<string>("");
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -277,8 +286,17 @@ function App() {
                if (voiceManagerRef.current) {
                  voiceManagerRef.current.sendStreamFrame(event.data.frame, event.data.width, event.data.height);
                }
-               // Show local preview
-               setCurrentStream({ name: playerName, frame: event.data.frame, width: event.data.width, height: event.data.height });
+               // Show local preview only if we explicitly watch ourselves
+               setCurrentStream(prev => {
+                   if (watchedStreamRef.current === playerName) {
+                       return { name: playerName, frame: event.data.frame, width: event.data.width, height: event.data.height };
+                   }
+                   return prev;
+               });
+            } else if (event.type === 'stream_stopped') {
+                setIsStreaming(false);
+                if (voiceManagerRef.current) voiceManagerRef.current.setStreaming(false);
+                setLogs(l => [...l.slice(-50), `[UI] Stream auto-stopped (source closed)`]);
             } else if (event.type === 'capture_sources') {
                setCaptureSources(event.data || []);
             } else if (event.type === 'log') {
@@ -369,6 +387,7 @@ function App() {
     if (!targetRoom.id.trim()) return;
     
     if (isConnected && voiceManagerRef.current) {
+        if (isStreaming) toggleStreaming(); // stop streaming on leave
         voiceManagerRef.current.disconnect();
         setIsConnected(false);
         setKnownPeers(new Set());
@@ -462,11 +481,16 @@ function App() {
                
                setLogs(l => [...l.slice(-50), `[SERVER] Sync: ${players.length} players in room`]);
            } else if (event === 'stream_frame') {
-               setCurrentStream({
-                   name: data.player_name,
-                   frame: data.frame,
-                   width: data.width,
-                   height: data.height
+               setCurrentStream(prev => {
+                   if (watchedStreamRef.current === data.player_name) {
+                       return {
+                           name: data.player_name,
+                           frame: data.frame,
+                           width: data.width,
+                           height: data.height
+                       };
+                   }
+                   return prev;
                });
            } else if (event === 'stream_status_changed') {
                // The room_state event now handles this more robustly, but we can still react to immediate changes
@@ -479,6 +503,7 @@ function App() {
                        return next;
                    });
                    setCurrentStream(prev => prev?.name === data.player_name ? null : prev);
+                   if (watchedStreamRef.current === data.player_name) setWatchedStream(null);
                }
            }
         },
@@ -532,6 +557,8 @@ function App() {
     setActiveRoom(null);
     setKnownPeers(new Set());
     setActiveSpeakers(new Set());
+    setCurrentStream(null);
+    setWatchedStream(null);
     setLogs(l => [...l.slice(-50), "[UI] Disconnected from Voice Room."]);
   };
 
@@ -1160,145 +1187,141 @@ function App() {
           )}
         </div>
 
-        <div className="flex-1 flex items-center justify-center flex-col p-4 relative overflow-hidden bg-[#202225]">
+        <div className="flex-1 flex flex-col p-4 relative overflow-hidden bg-[#202225] gap-4">
           
-          {/* VIDEO STREAM PLAYER */}
-          {currentStream && (
-             <div className="absolute inset-0 z-30 bg-black flex items-center justify-center p-2">
-                <div className="relative w-full h-full flex items-center justify-center">
-                   <img 
-                      src={`data:image/jpeg;base64,${currentStream.frame}`} 
-                      className="max-w-full max-h-full object-contain rounded shadow-2xl" 
-                      style={{ imageRendering: 'crisp-edges' }}
-                   />
-                   <div className="absolute bottom-4 left-4 bg-black/60 px-3 py-1.5 rounded-lg border border-white/10 flex items-center gap-2">
-                      <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-xs font-bold text-white uppercase overflow-hidden">
-                        {peerChampions[currentStream.name] ? <img src={champImgUrl(peerChampions[currentStream.name])} className="w-full h-full object-cover" /> : currentStream.name.substring(0,2)}
+          {/* Top Half: STREAM PLAYER OR VISUAL CTA */}
+          <div className="flex-1 min-h-0 flex flex-col items-center justify-center relative w-full">
+            {currentStream ? (
+               <div className="w-full h-full bg-black rounded shadow-2xl border border-[#202225] flex items-center justify-center relative overflow-hidden group">
+                  <img 
+                     src={`data:image/jpeg;base64,${currentStream.frame}`} 
+                     className="max-w-full max-h-full object-contain" 
+                     style={{ imageRendering: 'crisp-edges' }}
+                  />
+                  <div className="absolute bottom-4 left-4 bg-black/80 px-3 py-1.5 rounded border border-white/10 flex items-center gap-2">
+                     <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center text-xs font-bold text-white uppercase overflow-hidden">
+                       {peerChampions[currentStream.name] ? <img src={champImgUrl(peerChampions[currentStream.name])} className="w-full h-full object-cover" /> : currentStream.name.substring(0,2)}
+                     </div>
+                     <div className="flex flex-col">
+                       <span className="text-xs font-bold text-white leading-tight">{currentStream.name}</span>
+                       <span className="text-[10px] text-[#b9bbbe] leading-tight">LIVE MATCH STREAM</span>
+                     </div>
+                  </div>
+                  <button 
+                     onClick={() => setWatchedStream(null)}
+                     className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded transition-colors opacity-0 group-hover:opacity-100"
+                  >
+                    <X size={16} />
+                  </button>
+               </div>
+            ) : (
+                /* Main Visual Call to Action depending on state */
+                previewRoom && activeRoom?.id !== previewRoom.id ? (
+                   <div className="flex flex-col items-center">
+                      <div className="w-24 h-24 rounded flex items-center justify-center mb-6 shadow-xl bg-[#2f3136] text-[#b9bbbe]">
+                        <Monitor size={48} />
                       </div>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-white leading-tight">{currentStream.name}</span>
-                        <span className="text-[10px] text-[#b9bbbe] leading-tight">1080p @ 30 FPS</span>
-                      </div>
+                      <h1 className="text-2xl font-bold text-white mb-2">Welcome to {previewRoom.id}</h1>
+                      <p className="text-[#b9bbbe] max-w-sm text-center mb-8">
+                        You must join the voice channel in the sidebar to talk with other players.
+                      </p>
+                      <button 
+                        onClick={() => handleConnect(previewRoom)}
+                        className="bg-accent hover:bg-accent-hover px-8 py-3 rounded text-white font-bold flex items-center gap-2 transition-colors"
+                      >
+                         <LogIn size={20} /> Join Voice Channel
+                      </button>
                    </div>
-                   <button 
-                      onClick={() => setCurrentStream(null)}
-                      className="absolute top-4 right-4 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full transition-colors"
-                   >
-                     <X size={20} />
-                   </button>
-                </div>
-             </div>
-          )}
-
-          {/* Main Visual Call to Action depending on state */}
-          {previewRoom && activeRoom?.id !== previewRoom.id ? (
-             <div className="flex flex-col items-center">
-                <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-xl bg-[#2f3136] text-[#b9bbbe]">
-                  <Monitor size={48} />
-                </div>
-                <h1 className="text-2xl font-bold text-white mb-2">Welcome to {previewRoom.id}</h1>
-                <p className="text-[#b9bbbe] max-w-sm text-center mb-8">
-                  You must join the voice channel in the sidebar to talk with other players.
-                </p>
-                <button 
-                  onClick={() => handleConnect(previewRoom)}
-                  className="bg-accent hover:bg-accent-hover px-8 py-3 rounded text-white font-bold flex items-center gap-2 transition-colors"
-                >
-                   <LogIn size={20} /> Join Voice Channel
-                </button>
-             </div>
-          ) : (previewRoom && activeRoom?.id === previewRoom.id) ? (
-             <div className="flex flex-col items-center">
-                <div className="w-24 h-24 rounded-full flex items-center justify-center mb-6 shadow-xl bg-[#3ba55c] text-white">
-                  <Monitor size={48} />
-                </div>
-                <h1 className="text-2xl font-bold text-white mb-2">Connected to {activeRoom.id}</h1>
-                <p className="text-[#b9bbbe] max-w-md text-center mb-8">
-                  Your voice is connected securely. Start the YOLO detection worker in the sidebar so your teammates can hear you based on your live mini-map position!
-                </p>
-             </div>
-          ) : (
-             <div className="flex flex-col items-center">
-                <div className="w-24 h-24 rounded-[32px] flex items-center justify-center mb-6 shadow-xl bg-accent text-white">
-                  <Monitor size={48} />
-                </div>
-                <h1 className="text-2xl font-bold text-white mb-2">LoL Voice Control Panel</h1>
-                <p className="text-[#b9bbbe] max-w-md text-center mb-8">
-                  Create a new Server using the (+) button on the left, or click on a server icon to preview its voice channels line-up.
-                </p>
-             </div>
-          )}
+                ) : (previewRoom && activeRoom?.id === previewRoom.id) ? (
+                   <div className="flex flex-col items-center">
+                      <div className="w-24 h-24 rounded flex items-center justify-center mb-6 shadow-xl bg-[#3ba55c] text-white">
+                        <Monitor size={48} />
+                      </div>
+                      <h1 className="text-2xl font-bold text-white mb-2">Connected to {activeRoom.id}</h1>
+                      <p className="text-[#b9bbbe] max-w-md text-center mb-8">
+                        Your voice is connected securely. Start the YOLO detection worker in the sidebar so your teammates can hear you based on your live mini-map position!
+                      </p>
+                   </div>
+                ) : (
+                   <div className="flex flex-col items-center">
+                      <div className="w-24 h-24 rounded flex items-center justify-center mb-6 shadow-xl bg-accent text-white">
+                        <Monitor size={48} />
+                      </div>
+                      <h1 className="text-2xl font-bold text-white mb-2">LoL Voice Control Panel</h1>
+                      <p className="text-[#b9bbbe] max-w-md text-center mb-8">
+                        Create a new Server using the (+) button on the left, or click on a server icon to preview its voice channels line-up.
+                      </p>
+                   </div>
+                )
+            )}
+          </div>
 
           {/* Chat Panel — shown when connected to a room */}
           {activeRoom && previewRoom?.id === activeRoom.id && isConnected && (
-            <div className="absolute bottom-[200px] w-full px-8">
-              <div className="w-full max-w-3xl mx-auto bg-[#2f3136] rounded shadow-md flex flex-col" style={{maxHeight: '280px'}}>
-                <div className="flex-1 overflow-y-auto p-3" style={{minHeight: '80px', maxHeight: '220px'}}>
-                  {chatMessages.length === 0 && (
-                    <div className="text-[#8e9297] text-sm italic text-center py-4">No messages yet — say something!</div>
-                  )}
-                  {chatMessages.map((msg, i) => {
-                    const isMe = msg.sender === playerName;
-                    const time = new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
-                    const showHeader = i === 0 || chatMessages[i-1].sender !== msg.sender;
-                    return (
-                      <div key={i} className={`${showHeader ? 'mt-3 first:mt-0' : 'mt-0.5'}`}>
-                        {showHeader && (
-                          <div className="flex items-center gap-2 mb-0.5">
-                            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold uppercase text-white flex-shrink-0 ${isMe ? 'bg-accent' : 'bg-[#5865f2]'}`}>
-                              {msg.sender.substring(0,2)}
-                            </div>
-                            <span className={`text-sm font-semibold ${isMe ? 'text-accent' : 'text-white'}`}>{msg.sender}</span>
-                            <span className="text-[10px] text-[#72767d]">{time}</span>
+            <div className="w-full h-64 shrink-0 bg-[#2f3136] rounded shadow-md flex flex-col border border-[#202225]">
+              <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                {chatMessages.length === 0 && (
+                  <div className="text-[#8e9297] text-sm italic text-center py-4">No messages yet — say something!</div>
+                )}
+                {chatMessages.map((msg, i) => {
+                  const isMe = msg.sender === playerName;
+                  const time = new Date(msg.timestamp).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                  const showHeader = i === 0 || chatMessages[i-1].sender !== msg.sender;
+                  return (
+                    <div key={i} className={`${showHeader ? 'mt-3 first:mt-0' : 'mt-0.5'}`}>
+                      {showHeader && (
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <div className={`w-6 h-6 rounded flex items-center justify-center text-[10px] font-bold uppercase text-white flex-shrink-0 ${isMe ? 'bg-accent' : 'bg-[#5865f2]'}`}>
+                            {msg.sender.substring(0,2)}
                           </div>
-                        )}
-                        <div className="text-sm text-[#dcddde] ml-8">{msg.message}</div>
-                      </div>
-                    );
-                  })}
-                  <div ref={chatEndRef} />
-                </div>
-                <div className="border-t border-[#202225] p-2 flex gap-2">
-                  <input
-                    type="text"
-                    value={chatInput}
-                    onChange={e => setChatInput(e.target.value)}
-                    onKeyDown={e => { if (e.key === 'Enter') sendChatMessage(); }}
-                    placeholder={`Message #${activeRoom.id.toLowerCase()}`}
-                    className="flex-1 bg-[#40444b] text-[#dcddde] text-sm px-3 py-2 rounded-lg outline-none placeholder-[#72767d]"
-                  />
-                  <button 
-                    onClick={sendChatMessage}
-                    disabled={!chatInput.trim()}
-                    className="px-3 py-2 bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
-                  >
-                    <Send size={16} />
-                  </button>
-                </div>
+                          <span className={`text-sm font-semibold ${isMe ? 'text-accent' : 'text-white'}`}>{msg.sender}</span>
+                          <span className="text-[10px] text-[#72767d]">{time}</span>
+                        </div>
+                      )}
+                      <div className="text-sm text-[#dcddde] ml-8">{msg.message}</div>
+                    </div>
+                  );
+                })}
+                <div ref={chatEndRef} />
+              </div>
+              <div className="border-t border-[#202225] p-2 flex gap-2">
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={e => setChatInput(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') sendChatMessage(); }}
+                  placeholder={`Message #${activeRoom.id.toLowerCase()}`}
+                  className="flex-1 bg-[#40444b] text-[#dcddde] text-sm px-3 py-2 rounded outline-none placeholder-[#72767d]"
+                />
+                <button 
+                  onClick={sendChatMessage}
+                  disabled={!chatInput.trim()}
+                  className="px-3 py-2 bg-accent hover:bg-accent-hover disabled:opacity-30 disabled:cursor-not-allowed text-white rounded transition-colors"
+                >
+                  <Send size={16} />
+                </button>
               </div>
             </div>
           )}
 
-          {/* Logs Terminal stays at the very bottom */}
-          <div className="absolute bottom-6 w-full px-8">
-             <div className="w-full max-w-3xl mx-auto bg-[#2f3136] rounded p-4 font-mono text-[11px] text-[#b9bbbe] h-36 overflow-y-auto shadow-md">
-                <div className="mb-2 text-white font-bold flex justify-between">
-                  <span>IPC Diagnostics</span>
-                  <span className="text-[10px] text-[#b9bbbe] font-normal px-2 py-0.5 rounded cursor-pointer hover:text-white" onClick={() => setLogs([])}>Clear Logs</span>
+          {/* Logs Terminal */}
+          <div className="w-full shrink-0 bg-[#2f3136] rounded p-3 font-mono text-[11px] text-[#b9bbbe] h-32 overflow-y-auto border border-[#202225] shadow-inner mb-2 hide-scrollbar">
+            <div className="mb-2 text-white font-bold flex justify-between">
+              <span>IPC Diagnostics</span>
+              <span className="text-[10px] text-[#b9bbbe] font-normal px-2 py-0.5 rounded cursor-pointer hover:bg-white/10" onClick={() => setLogs([])}>Clear</span>
+            </div>
+            {logs.map((log, i) => {
+              const colorClass = log.includes("[ERROR]") || log.includes("[UI ERROR]") ? "text-[#ed4245]" 
+                               : log.includes("[SYSTEM]") || log.includes("[UI]") ? "text-[#3ba55c]" 
+                               : "";
+              return (
+                <div key={i} className={`py-0.5 border-b border-[#202225] last:border-0 ${colorClass}`}>
+                  {log}
                 </div>
-                {logs.map((log, i) => {
-                  const colorClass = log.includes("[ERROR]") || log.includes("[UI ERROR]") ? "text-[#ed4245]" 
-                                   : log.includes("[SYSTEM]") || log.includes("[UI]") ? "text-[#3ba55c]" 
-                                   : "";
-                  return (
-                    <div key={i} className={`py-0.5 border-b border-[#202225] last:border-0 ${colorClass}`}>
-                      {log}
-                    </div>
-                  );
-                })}
-                {logs.length === 0 && <div className="italic opacity-50">Awaiting events...</div>}
-                <div ref={logEndRef} />
-             </div>
+              );
+            })}
+            {logs.length === 0 && <div className="italic opacity-50">Awaiting events...</div>}
+            <div ref={logEndRef} />
           </div>
           
         </div>
@@ -1427,15 +1450,13 @@ function App() {
                                  </div>
                                 <span className="text-sm font-medium text-white flex-1 truncate">{peer}</span>
                                 {streamingPlayers.has(peer) && (
-                                   <div 
-                                      onClick={(e) => {
-                                         // If we click the monitor icon, we specifically want to watch the stream
-                                         e.stopPropagation();
-                                      }}
-                                      className="p-1 px-2 bg-accent text-white text-[9px] font-bold rounded flex items-center gap-1 animate-pulse"
+                                   <button 
+                                      onClick={(e) => { e.stopPropagation(); setWatchedStream(watchedStream === peer ? null : peer); }}
+                                      className={`p-1 px-2 text-[9px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === peer ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
+                                      title={watchedStream === peer ? "Stop watching" : "Watch stream"}
                                    >
-                                      <Monitor size={10} /> LIVE
-                                   </div>
+                                      <Monitor size={10} /> {watchedStream === peer ? 'WATCHING' : 'LIVE'}
+                                   </button>
                                 )}
                              </div>
                           ))}

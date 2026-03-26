@@ -86,7 +86,13 @@ def handle_command(cmd: dict):
         if not stream_worker:
             source_id = data.get("source_id", "window_lol")
             stream_worker = WindowCapture(source_id=source_id, target_fps=30, quality=60)
-            success = stream_worker.start(voice_stub.send_stream_frame)
+            
+            def on_stream_stopped():
+                global stream_worker
+                stream_worker = None
+                send_event("stream_stopped", {})
+
+            success = stream_worker.start(voice_stub.send_stream_frame, on_stopped_callback=on_stream_stopped)
             if success:
                 send_event("log", {"message": f"Streaming started ({source_id})"})
             else:

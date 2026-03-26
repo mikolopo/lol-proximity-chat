@@ -353,7 +353,7 @@ class WindowCapture:
             except ValueError:
                 self._hwnd = find_lol_window()
 
-    def start(self, callback):
+    def start(self, callback, on_stopped_callback=None):
         """
         Start the streaming capture. 
         The callback receives (base64_frame, width, height).
@@ -362,6 +362,7 @@ class WindowCapture:
             return False
             
         self._callback = callback
+        self._on_stopped = on_stopped_callback
         self._running = True
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
@@ -374,75 +375,86 @@ class WindowCapture:
 
     def _capture_loop(self):
         interval = 1.0 / self.target_fps
-        with mss.mss() as sct:
-            while self._running:
-                t0 = time.perf_counter()
-                
-                monitor = None
-                
-                if self._screen_idx is not None:
-                    # Capturing a full screen
-                    if self._screen_idx < len(sct.monitors):
-                        monitor = sct.monitors[self._screen_idx]
-                    else:
-                        monitor = sct.monitors[1] # fallback to primary
-                else:
-                    # Capturing a window
-                    if self.source_id == "window_lol" and (not self._hwnd or not win32gui.IsWindow(self._hwnd)):
-                        self._hwnd = find_lol_window()
-                        if not self._hwnd:
-                            time.sleep(1)
+        stopped_unexpectedly = False
+
+        while self._running:
+            try:
+                with mss.mss() as sct:
+                    while self._running:
+                        t0 = time.perf_counter()
+                        
+                        monitor = None
+                        
+                        if self._screen_idx is not None:
+                            # Capturing a full screen
+                            if self._screen_idx < len(sct.monitors):
+                                monitor = sct.monitors[self._screen_idx]
+                            else:
+                                monitor = sct.monitors[1] # fallback to primary
+                        else:
+                            # Capturing a window
+                            if self.source_id == "window_lol":
+                                if not self._hwnd or not win32gui.IsWindow(self._hwnd):
+                                    self._hwnd = find_lol_window()
+                                    if not self._hwnd:
+                                        time.sleep(1)
+                                        continue
+                            else:
+                                if not self._hwnd or not win32gui.IsWindow(self._hwnd):
+                                    print(f"[WindowCapture] Tracked window {self.source_id} was closed. Ending stream.")
+                                    stopped_unexpectedly = True
+                                    self._running = False
+                                    break
+
+                            if win32gui.IsIconic(self._hwnd):
+                                time.sleep(0.5)
+                                continue
+
+                            rect = win32gui.GetWindowRect(self._hwnd)
+                            width = rect[2] - rect[0]
+                            height = rect[3] - rect[1]
+                            
+                            if width <= 0 or height <= 0:
+                                continue
+
+                            monitor = {
+                                "left": rect[0],
+                                "top": rect[1],
+                                "width": width,
+                                "height": height
+                            }
+
+                        if not monitor:
+                            time.sleep(0.1)
                             continue
 
-                    if not self._hwnd or not win32gui.IsWindow(self._hwnd):
-                        time.sleep(1)
-                        continue
+                        try:
+                            raw = sct.grab(monitor)
+                            frame = np.array(raw)[:, :, :3]
+                            
+                            target_w = 1920
+                            target_h = 1080
+                            
+                            if frame.shape[1] != target_w or frame.shape[0] != target_h:
+                                frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
+                            
+                            _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
+                            b64_frame = base64.b64encode(buffer).decode('utf-8')
+                            
+                            if self._callback:
+                                self._callback(b64_frame, target_w, target_h)
+                                
+                        except Exception as e:
+                            print(f"[WindowCapture] Error grabbing bound: {e}. Reinitializing MSS context to handle potential monitor DPI layout changes.")
+                            break # Escape inner while to recreate MSS context
 
-                    if win32gui.IsIconic(self._hwnd):
-                        time.sleep(0.5)
-                        continue
+                        elapsed = time.perf_counter() - t0
+                        sleep_time = interval - elapsed
+                        if sleep_time > 0:
+                            time.sleep(sleep_time)
+            except Exception as e:
+                print(f"[WindowCapture] Critical loop error: {e}")
+                time.sleep(1)
 
-                    rect = win32gui.GetWindowRect(self._hwnd)
-                    width = rect[2] - rect[0]
-                    height = rect[3] - rect[1]
-                    
-                    if width <= 0 or height <= 0:
-                        continue
-
-                    monitor = {
-                        "left": rect[0],
-                        "top": rect[1],
-                        "width": width,
-                        "height": height
-                    }
-
-                if not monitor:
-                    time.sleep(0.1)
-                    continue
-
-                try:
-                    raw = sct.grab(monitor)
-                    frame = np.array(raw)[:, :, :3]
-                    
-                    # Target 1080p roughly (scale proportionally if possible, or just force 1080p)
-                    # For performance and consistency, we force it to 1080p for the receiver
-                    target_w = 1920
-                    target_h = 1080
-                    
-                    if frame.shape[1] != target_w or frame.shape[0] != target_h:
-                        frame = cv2.resize(frame, (target_w, target_h), interpolation=cv2.INTER_AREA)
-                    
-                    # Encode to JPEG
-                    _, buffer = cv2.imencode('.jpg', frame, [int(cv2.IMWRITE_JPEG_QUALITY), self.quality])
-                    b64_frame = base64.b64encode(buffer).decode('utf-8')
-                    
-                    if self._callback:
-                        self._callback(b64_frame, target_w, target_h)
-                        
-                except Exception as e:
-                    print(f"[WindowCapture] Error: {e}")
-
-                elapsed = time.perf_counter() - t0
-                sleep_time = interval - elapsed
-                if sleep_time > 0:
-                    time.sleep(sleep_time)
+        if stopped_unexpectedly and getattr(self, '_on_stopped', None):
+            self._on_stopped()
