@@ -67,18 +67,8 @@ jobs:
           $repo    = "${{ github.repository }}"
           $baseUrl = "https://github.com/$repo/releases/download/$tag"
 
-          # Helper to zip + sign a file (TAURI_SIGNING_PRIVATE_KEY env var is already set)
-          function Sign-Bundle($srcPath, $zipPath) {
-            7z a -tzip $zipPath $srcPath
-            $tauriBin = "desktop/node_modules/.bin/tauri"
-            & $tauriBin signer sign --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $zipPath
-            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
-          }
-
           $msiSrc  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi"
           $msiZip  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi.zip"
-
-          Sign-Bundle $msiSrc $msiZip
 
           $msiSig = (Get-Content "$msiZip.sig" -Raw).Trim()
 
