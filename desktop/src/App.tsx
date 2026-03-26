@@ -220,11 +220,14 @@ function App() {
   };
 
   useEffect(() => {
-    if (!showSettingsModal) {
+    if (!showSettingsModal && !showStreamPickerModal) {
         if (micLevelInterval.current) { clearInterval(micLevelInterval.current); micLevelInterval.current = null; }
         return;
     }
+    
+    // Only fetch audio devices if we are opening the Settings modal
     async function fetchDevices() {
+        if (!showSettingsModal) return;
         try {
             await navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
             const devices = await navigator.mediaDevices.enumerateDevices();
@@ -238,22 +241,26 @@ function App() {
     }
     fetchDevices();
     
+    // Always fetch latest screens/windows when opening Settings OR Stream Picker
     if (sidecarChildRef.current) {
         try {
             sidecarChildRef.current.write(JSON.stringify({ type: "get_capture_sources", data: {} }) + "\n");
         } catch (e) {}
     }
     
-    // Poll mic level from VoiceManager for the level meter
-    micLevelInterval.current = setInterval(() => {
-        if (voiceManagerRef.current) {
-            setMicLevelDisplay(voiceManagerRef.current.getMicLevel());
-        }
-    }, 50);
+    // Poll mic level from VoiceManager for the level meter ONLY in Settings
+    if (showSettingsModal) {
+        micLevelInterval.current = setInterval(() => {
+            if (voiceManagerRef.current) {
+                setMicLevelDisplay(voiceManagerRef.current.getMicLevel());
+            }
+        }, 50);
+    }
+    
     return () => {
         if (micLevelInterval.current) { clearInterval(micLevelInterval.current); micLevelInterval.current = null; }
     };
-  }, [showSettingsModal]);
+  }, [showSettingsModal, showStreamPickerModal]);
 
   useEffect(() => {
     let unmounted = false;
