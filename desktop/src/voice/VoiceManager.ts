@@ -177,7 +177,9 @@ export class VoiceManager {
   
   public setMicVolume(vol: number) {
       this.micVolume = vol;
-      if (this.micGainNode) this.micGainNode.gain.value = vol;
+      // Multiply by 0.7 to globally reduce microphone capture gain, preventing clipping
+      if (this.micGainNode) this.micGainNode.gain.value = vol * 0.7;
+      if (this.testMicGainNode) this.testMicGainNode.gain.value = vol * 0.7;
   }
 
   public setPeerVolume(peerId: string, vol: number) {
@@ -188,6 +190,7 @@ export class VoiceManager {
   public setHeadphoneVolume(vol: number) {
       this.headphoneVolume = vol;
       if (this.masterGainNode) this.masterGainNode.gain.value = vol;
+      if (this.testSpeakerGainNode) this.testSpeakerGainNode.gain.value = vol;
   }
 
   public setNoiseGate(threshold: number) {
@@ -196,37 +199,39 @@ export class VoiceManager {
   }
   
   public setNoiseSuppression(enabled: boolean) {
+      if (this.noiseSuppression === enabled) return;
       this.noiseSuppression = enabled;
-      if (this.rnnoiseNode) {
-          // Bypass by disconnecting/reconnecting
-          // We'll handle this via the flag in the audio chain
+      
+      // Hot-swap the audio graph for live voice if active
+      if (this.micGainNode && this.scriptProcessor) {
           try {
-              if (enabled) {
-                  // Reconnect rnnoise into the chain
-                  if (this.micGainNode && this.scriptProcessor) {
-                      this.micGainNode.disconnect();
-                      this.micGainNode.connect(this.rnnoiseNode);
-                      this.rnnoiseNode.connect(this.scriptProcessor);
-                  }
+              this.micGainNode.disconnect();
+              if (this.rnnoiseNode) this.rnnoiseNode.disconnect();
+              
+              if (enabled && this.rnnoiseNode) {
+                  this.micGainNode.connect(this.rnnoiseNode);
+                  this.rnnoiseNode.connect(this.scriptProcessor);
               } else {
-                  // Bypass rnnoise: connect mic gain directly to script processor
-                  if (this.micGainNode && this.scriptProcessor) {
-                      this.micGainNode.disconnect();
-                      this.rnnoiseNode.disconnect();
-                      this.micGainNode.connect(this.scriptProcessor);
-                  }
+                  this.micGainNode.connect(this.scriptProcessor);
               }
           } catch (e) {
-              console.warn("[VoiceManager] Failed to toggle noise suppression:", e);
+              console.warn("[VoiceManager] Failed to hot-swap noise suppression:", e);
           }
       }
   }
   
   /** Returns the current mic input level (0-1) for UI metering */
+  private testAudioContext: AudioContext | null = null;
+  private testStream: MediaStream | null = null;
+  private testMicGainNode: GainNode | null = null;
+  private testSpeakerGainNode: GainNode | null = null;
+  private currentMicLevel: number = 0; // For mic test metering
+  private isMicMuted: boolean = false; // For mic test logic
+  private isDeafened: boolean = false; // For mic test logic
+  
   public getMicLevel(): number {
-      return this._lastMicLevel;
+      return this.currentMicLevel;
   }
-  private _lastMicLevel: number = 0;
 
   public setPlayerName(name: string) {
       if (name) this.localPlayerName = name;
@@ -483,7 +488,7 @@ export class VoiceManager {
       
       const source = this.audioContext.createMediaStreamSource(this.stream);
       this.micGainNode = this.audioContext.createGain();
-      this.micGainNode.gain.value = this.micVolume;
+      this.micGainNode.gain.value = this.micVolume * 0.7;
       
       // ──── CAPTURE: Raw PCM float32 via ScriptProcessorNode ────
       // 4096 samples (~85ms @ 48kHz) - larger buffer is more stable and reduces CPU overhead
@@ -530,7 +535,7 @@ export class VoiceManager {
             const amp = Math.abs(input[i]);
             if (amp > maxAmp) maxAmp = amp;
         }
-        this._lastMicLevel = maxAmp;
+        this.currentMicLevel = maxAmp; // Unified metering for actual stream
         
         // Noise gate with hold timer to prevent choppy cutoffs
         const now = performance.now();
@@ -608,12 +613,14 @@ export class VoiceManager {
   }
 
   public setMicMuted(muted: boolean) {
+    this.isMicMuted = muted; // Update for mic test logic
     if (this.stream) {
         this.stream.getAudioTracks().forEach(track => track.enabled = !muted);
     }
   }
 
   public setDeafened(deafened: boolean) {
+    this.isDeafened = deafened; // Update for mic test logic
     if (this.masterGainNode && this.audioContext) {
         this.masterGainNode.gain.setTargetAtTime(deafened ? 0 : this.headphoneVolume, this.audioContext.currentTime, 0.05);
     }
@@ -651,6 +658,10 @@ export class VoiceManager {
       this.audioContext.close();
       this.audioContext = null;
     }
+    // Clean up mic test resources
+    if (this.testAudioContext) { this.testAudioContext.close(); this.testAudioContext = null; }
+    if (this.testStream) { this.testStream.getTracks().forEach(t => t.stop()); this.testStream = null; }
+    this.currentMicLevel = 0;
   }
 
   public updateGamePhase(phase: string, team?: string, roster?: any) {
@@ -688,5 +699,88 @@ export class VoiceManager {
       team_only: this.roomTeamOnly,
       dead_chat: this.roomDeadChat
     });
+  }
+
+  // --- LOCAL MIC TESTING WITH RNNOISE & GATE ---
+  public async toggleMicTest(enable: boolean, micId: string, speakerId: string) {
+      if (!enable) {
+          if (this.testAudioContext) { this.testAudioContext.close(); this.testAudioContext = null; }
+          if (this.testStream) { this.testStream.getTracks().forEach(t => t.stop()); this.testStream = null; }
+          this.currentMicLevel = 0;
+          return;
+      }
+      
+      this.testAudioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 48000 });
+      
+      const constraints: any = { echoCancellation: false, noiseSuppression: false, autoGainControl: false, sampleRate: 48000, channelCount: 1 };
+      if (micId && micId !== "default") constraints.deviceId = { exact: micId };
+      
+      try {
+          this.testStream = await navigator.mediaDevices.getUserMedia({ audio: constraints });
+      } catch (err: any) {
+          console.error("Mic test access denied or error:", err);
+          throw new Error("Permission denied. Check Windows Privacy -> Microphone.");
+      }
+      
+      const source = this.testAudioContext.createMediaStreamSource(this.testStream);
+      this.testMicGainNode = this.testAudioContext.createGain();
+      this.testMicGainNode.gain.value = this.micVolume * 0.7;
+      
+      this.testSpeakerGainNode = this.testAudioContext.createGain();
+      this.testSpeakerGainNode.gain.value = this.headphoneVolume;
+      this.testSpeakerGainNode.connect(this.testAudioContext.destination);
+      
+      if (speakerId && speakerId !== "default" && typeof (this.testAudioContext as any).setSinkId === 'function') {
+          try { await (this.testAudioContext as any).setSinkId(speakerId); } catch(e){}
+      }
+      
+      source.connect(this.testMicGainNode);
+      let processNode: AudioNode = this.testMicGainNode;
+      
+      if (this.noiseSuppression) {
+          try {
+              const { loadRnnoise, RnnoiseWorkletNode } = await import("@sapphi-red/web-noise-suppressor");
+              const rnnoiseWasmUrl = (await import("@sapphi-red/web-noise-suppressor/rnnoise.wasm?url")).default;
+              const rnnoiseSimdWasmUrl = (await import("@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url")).default;
+              const workletUrl = (await import("@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url")).default;
+              
+              const wasmBinary = await loadRnnoise({ url: rnnoiseWasmUrl, simdUrl: rnnoiseSimdWasmUrl });
+              await this.testAudioContext.audioWorklet.addModule(workletUrl);
+              const node = new RnnoiseWorkletNode(this.testAudioContext, {
+                  maxChannels: 1,
+                  wasmBinary
+              });
+              this.testMicGainNode.connect(node);
+              processNode = node;
+          } catch(e) {}
+      }
+      
+      const sp = this.testAudioContext.createScriptProcessor(4096, 1, 1);
+      processNode.connect(sp);
+      sp.connect(this.testSpeakerGainNode);
+      
+      let holdFrames = 0;
+      sp.onaudioprocess = (e) => {
+          const input = e.inputBuffer.getChannelData(0);
+          const output = e.outputBuffer.getChannelData(0);
+          
+          let sumSquares = 0;
+          for (let i = 0; i < input.length; i++) { sumSquares += input[i] * input[i]; }
+          const rms = Math.sqrt(sumSquares / input.length);
+          this.currentMicLevel = rms;
+          
+          const threshold = this.noiseGateThreshold * 0.1;
+          
+          if (rms > threshold || this.isMicMuted || this.isDeafened) {
+              holdFrames = Math.ceil((150 / 1000) * (48000 / 4096)); 
+          }
+          
+          if (holdFrames > 0 && !this.isMicMuted && !this.isDeafened) {
+              holdFrames--;
+              for (let i=0; i<input.length; i++) output[i] = input[i];
+          } else {
+              for(let i=0; i<input.length; i++) output[i] = 0;
+          }
+      };
   }
 }

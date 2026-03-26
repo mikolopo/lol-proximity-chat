@@ -107,10 +107,6 @@ function App() {
   // Debug & Test states
   const [isCV2DebugEnabled, setIsCV2DebugEnabled] = useState(false);
   const [isMicTesting, setIsMicTesting] = useState(false);
-  const micMediaRecorder = useRef<MediaRecorder | null>(null);
-  const micAudioContext = useRef<AudioContext | null>(null);
-  const micTestGainRef = useRef<GainNode | null>(null);
-  const speakerTestGainRef = useRef<GainNode | null>(null);
 
   const [micVolume, setMicVolume] = useState<number>(() => parseFloat(localStorage.getItem('lpc_micVol') || '1.0'));
   const [headphoneVolume, setHeadphoneVolume] = useState<number>(() => parseFloat(localStorage.getItem('lpc_hpVol') || '1.0'));
@@ -219,7 +215,7 @@ function App() {
 
   const closeSettings = () => {
       setShowSettingsModal(false);
-      if (isMicTesting) toggleMicTest();
+      if (isMicTesting) toggleMicTest(); // Stop mic test if active
       if (micLevelInterval.current) { clearInterval(micLevelInterval.current); micLevelInterval.current = null; }
   };
 
@@ -560,7 +556,12 @@ function App() {
         }
         
     } catch (err: any) {
-        setLogs(l => [...l.slice(-50), `[UI] Microphone connection failed: ${err.message || err}`]);
+        let errorMsg = err.message || err.toString();
+        if (errorMsg.includes('Permission denied') || err.name === 'NotAllowedError') {
+            errorMsg = "Microphone access denied. Please check Windows Settings -> Privacy & security -> Microphone -> 'Allow desktop apps to access your microphone'.";
+        }
+        setLogs(l => [...l.slice(-50), `[UI] Microphone connection failed: ${errorMsg}`]);
+        setIsConnected(false);
     }
   };
   
@@ -645,43 +646,28 @@ function App() {
   };
   
   const toggleMicTest = async () => {
+      // If we are not connected to a room, temporarily create a VoiceManager just for the test
+      if (!voiceManagerRef.current) {
+          const normalizedUrl = backendUrl.startsWith('http') ? backendUrl : `http://${backendUrl}`;
+          voiceManagerRef.current = new VoiceManager(normalizedUrl);
+      }
+      
       if (isMicTesting) {
           setIsMicTesting(false);
-          if (micAudioContext.current) { micAudioContext.current.close(); micAudioContext.current = null; }
-          if (micMediaRecorder.current && micMediaRecorder.current.stream) {
-              micMediaRecorder.current.stream.getTracks().forEach(t => t.stop());
-              micMediaRecorder.current = null;
+          await voiceManagerRef.current.toggleMicTest(false, "", "");
+          // Clean up the temporary VoiceManager if we are not actively connected to a room
+          if (!isConnected) {
+              voiceManagerRef.current.disconnect();
+              voiceManagerRef.current = null;
           }
       } else {
-          try {
-              setIsMicTesting(true);
-              const constraints = { audio: selectedMic && selectedMic !== "default" ? { deviceId: { exact: selectedMic } } : true };
-              const testStream = await navigator.mediaDevices.getUserMedia(constraints);
-              const ac = new (window.AudioContext || (window as any).webkitAudioContext)();
-              micAudioContext.current = ac;
-              
-              if (selectedSpeaker && selectedSpeaker !== "default" && typeof (ac as any).setSinkId === 'function') {
-                  try { await (ac as any).setSinkId(selectedSpeaker); } catch (e) {}
-              }
-              
-              const source = ac.createMediaStreamSource(testStream);
-              const testMicGain = ac.createGain();
-              testMicGain.gain.value = micVolume; // Default
-              const testSpeakerGain = ac.createGain();
-              testSpeakerGain.gain.value = headphoneVolume; // Default
-              
-              source.connect(testMicGain);
-              testMicGain.connect(testSpeakerGain);
-              testSpeakerGain.connect(ac.destination);
-              
-              micTestGainRef.current = testMicGain;
-              speakerTestGainRef.current = testSpeakerGain;
-              
-              micMediaRecorder.current = { stream: testStream } as any; // Store just to kill tracks later
-          } catch (err) {
-              console.error("Mic test fail:", err);
-              setIsMicTesting(false);
-          }
+          setIsMicTesting(true);
+          // Sync current UI settings to the VoiceManager before starting the test
+          voiceManagerRef.current.setNoiseSuppression(noiseSuppression);
+          voiceManagerRef.current.setNoiseGate(noiseGate);
+          voiceManagerRef.current.setMicVolume(micVolume);
+          
+          await voiceManagerRef.current.toggleMicTest(true, selectedMic, selectedSpeaker);
       }
   };
 
@@ -876,7 +862,6 @@ function App() {
                                     const v = Number(e.target.value);
                                     setMicVolume(v);
                                     if (voiceManagerRef.current) voiceManagerRef.current.setMicVolume(v);
-                                    if (micTestGainRef.current) micTestGainRef.current.gain.value = v;
                                 }}
                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
                             />
@@ -902,7 +887,14 @@ function App() {
                                 onClick={() => {
                                     const next = !noiseSuppression;
                                     setNoiseSuppression(next);
-                                    if (voiceManagerRef.current) voiceManagerRef.current.setNoiseSuppression(next);
+                                    if (voiceManagerRef.current) {
+                                        voiceManagerRef.current.setNoiseSuppression(next);
+                                        if (isMicTesting) {
+                                            voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
+                                                voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
+                                            });
+                                        }
+                                    }
                                 }}
                                 className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${noiseSuppression ? 'bg-accent' : 'bg-[#4f545c]'}`}
                             >
@@ -921,6 +913,14 @@ function App() {
                                     const v = Number(e.target.value);
                                     setNoiseGate(v);
                                     if (voiceManagerRef.current) voiceManagerRef.current.setNoiseGate(v);
+                                }}
+                                onMouseUp={() => {
+                                    // Optional: restart or sync test dynamically on slider release
+                                    if (isMicTesting && voiceManagerRef.current) {
+                                        voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
+                                            voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
+                                        });
+                                    }
                                 }}
                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent"
                             />
@@ -961,7 +961,6 @@ function App() {
                                     const v = Number(e.target.value);
                                     setHeadphoneVolume(v);
                                     if (voiceManagerRef.current) voiceManagerRef.current.setHeadphoneVolume(v);
-                                    if (speakerTestGainRef.current) speakerTestGainRef.current.gain.value = v;
                                 }}
                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
                             />
@@ -1389,8 +1388,8 @@ function App() {
         </div>
       </div>
 
-      {/* Right Sidebar (Dashboard) — always visible when connected to a proximity room */}
-      {activeRoom && previewRoom?.id === activeRoom.id && isConnected && activeRoom.mode === 'proximity' && (
+      {/* Right Sidebar (Dashboard) — always visible when connected to a chat room */}
+      {activeRoom && previewRoom?.id === activeRoom.id && isConnected && (
           <div className="w-72 bg-[#2f3136] flex flex-col border-l border-[#202225] flex-shrink-0">
               <div className="h-12 border-b border-[#202225] flex items-center px-4 flex-shrink-0">
                  <h3 className="font-semibold text-white">Live Match Dashboard</h3>
@@ -1404,8 +1403,8 @@ function App() {
                     </div>
                  )}
 
-                 {/* Team roster display (when game is detected) */}
-                 {serverMapData?.team_rosters && (serverMapData.team_rosters.blue?.length > 0 || serverMapData.team_rosters.red?.length > 0) ? (
+                 {/* Team roster display (when game is detected AND in proximity mode) */}
+                 {activeRoom.mode === 'proximity' && serverMapData?.team_rosters && (serverMapData.team_rosters.blue?.length > 0 || serverMapData.team_rosters.red?.length > 0) ? (
                     <>
                     {/* YOLO DEBUG MINIMAP */}
                     <div className="mb-4 aspect-square bg-[#1a1b1e] rounded-lg border border-[#202225] shadow-inner relative overflow-hidden">

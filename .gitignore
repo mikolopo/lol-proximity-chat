@@ -40,3 +40,7 @@ dist/
 !dump_bundle.spec
 _archive/
 *.exe
+
+# Local AI & Planning
+.cursorrules
+TODO.md
