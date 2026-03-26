@@ -7,7 +7,7 @@
 - [ ] Remove unused/redundant Python scripts from the `client/` folder to clean up the backend sidecar.
 
 ## 🔊 Voice Chat Improvements
-- [ ] Fix voice chat volume issues: Provide better default volume normalization or refine proximity scaling calculations.
+- [x] Fix voice chat volume issues: Provided better default volume normalization (gain 0.85, mic 1.0) and fixed proximity scaling calculations. Added RNNoise suppression and dynamic mic level meters.
 - [ ] Add individual volume sliders for peers in the UI.
 
 ## 👁️ Computer Vision / Detection Logic

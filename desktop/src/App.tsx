@@ -112,10 +112,13 @@ function App() {
   const micTestGainRef = useRef<GainNode | null>(null);
   const speakerTestGainRef = useRef<GainNode | null>(null);
 
-  const [micVolume, setMicVolume] = useState<number>(() => parseFloat(localStorage.getItem('lpc_micVol') || '0.3'));
+  const [micVolume, setMicVolume] = useState<number>(() => parseFloat(localStorage.getItem('lpc_micVol') || '1.0'));
   const [headphoneVolume, setHeadphoneVolume] = useState<number>(() => parseFloat(localStorage.getItem('lpc_hpVol') || '1.0'));
   const [peerVolumes, setPeerVolumes] = useState<Record<string, number>>(() => JSON.parse(localStorage.getItem('lpc_peerVols') || '{}'));
-  const [noiseGate, setNoiseGate] = useState<number>(() => parseFloat(localStorage.getItem('lpc_noiseGate') || '0.01'));
+  const [noiseGate, setNoiseGate] = useState<number>(() => parseFloat(localStorage.getItem('lpc_noiseGate') || '0.15'));
+  const [noiseSuppression, setNoiseSuppression] = useState<boolean>(() => localStorage.getItem('lpc_noiseSuppression') !== 'false');
+  const [micLevelDisplay, setMicLevelDisplay] = useState<number>(0);
+  const micLevelInterval = useRef<any>(null);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, peerId: string } | null>(null);
 
@@ -155,6 +158,7 @@ function App() {
   useEffect(() => { localStorage.setItem('lpc_hpVol', String(headphoneVolume)); }, [headphoneVolume]);
   useEffect(() => { localStorage.setItem('lpc_peerVols', JSON.stringify(peerVolumes)); }, [peerVolumes]);
   useEffect(() => { localStorage.setItem('lpc_noiseGate', String(noiseGate)); }, [noiseGate]);
+  useEffect(() => { localStorage.setItem('lpc_noiseSuppression', String(noiseSuppression)); }, [noiseSuppression]);
 
   // Auto-scroll the IPC log panel to the bottom whenever new logs arrive
   useEffect(() => {
@@ -216,10 +220,14 @@ function App() {
   const closeSettings = () => {
       setShowSettingsModal(false);
       if (isMicTesting) toggleMicTest();
+      if (micLevelInterval.current) { clearInterval(micLevelInterval.current); micLevelInterval.current = null; }
   };
 
   useEffect(() => {
-    if (!showSettingsModal) return;
+    if (!showSettingsModal) {
+        if (micLevelInterval.current) { clearInterval(micLevelInterval.current); micLevelInterval.current = null; }
+        return;
+    }
     async function fetchDevices() {
         try {
             await navigator.mediaDevices.getUserMedia({ audio: true }).then(s => s.getTracks().forEach(t => t.stop())).catch(() => {});
@@ -239,6 +247,16 @@ function App() {
             sidecarChildRef.current.write(JSON.stringify({ type: "get_capture_sources", data: {} }) + "\n");
         } catch (e) {}
     }
+    
+    // Poll mic level from VoiceManager for the level meter
+    micLevelInterval.current = setInterval(() => {
+        if (voiceManagerRef.current) {
+            setMicLevelDisplay(voiceManagerRef.current.getMicLevel());
+        }
+    }, 50);
+    return () => {
+        if (micLevelInterval.current) { clearInterval(micLevelInterval.current); micLevelInterval.current = null; }
+    };
   }, [showSettingsModal]);
 
   useEffect(() => {
@@ -873,6 +891,25 @@ function App() {
                                ))}
                             </select>
                         </div>
+                        
+                        {/* Noise Suppression Toggle */}
+                        <div className="flex items-center justify-between py-2">
+                            <div>
+                                <span className="text-sm font-medium text-[#dcddde]">Noise Suppression (RNNoise)</span>
+                                <p className="text-xs text-text-muted mt-0.5">AI-powered filter that removes keyboard, fan, and background noise.</p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    const next = !noiseSuppression;
+                                    setNoiseSuppression(next);
+                                    if (voiceManagerRef.current) voiceManagerRef.current.setNoiseSuppression(next);
+                                }}
+                                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${noiseSuppression ? 'bg-accent' : 'bg-[#4f545c]'}`}
+                            >
+                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${noiseSuppression ? 'translate-x-5' : ''}`} />
+                            </button>
+                        </div>
+                        
                         <div>
                             <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
                                <span>Voice Activity Threshold</span>
@@ -887,7 +924,23 @@ function App() {
                                 }}
                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent"
                             />
-                            <p className="text-xs text-text-muted mt-2 mb-2">Filters out background noise when you stop talking.</p>
+                            {/* Mic Level Meter */}
+                            <div className="mt-2 relative h-2 bg-[#202225] rounded-full overflow-hidden">
+                                {/* Green bar = current mic level */}
+                                <div 
+                                    className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
+                                    style={{ 
+                                        width: `${Math.min(micLevelDisplay * 100 * 10, 100)}%`,
+                                        background: micLevelDisplay * 10 > noiseGate ? '#3ba55d' : '#4f545c'
+                                    }}
+                                />
+                                {/* Threshold line */}
+                                <div 
+                                    className="absolute inset-y-0 w-0.5 bg-[#ed4245]"
+                                    style={{ left: `${Math.min(noiseGate * 100, 100)}%` }}
+                                />
+                            </div>
+                            <p className="text-xs text-text-muted mt-2 mb-2">Filters out background noise when you stop talking. Red line = threshold, green bar = your mic level.</p>
                         </div>
                         <div className="flex gap-2">
                             <button 

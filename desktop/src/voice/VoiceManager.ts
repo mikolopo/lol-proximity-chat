@@ -1,4 +1,8 @@
 import { io, Socket } from "socket.io-client";
+import { RnnoiseWorkletNode, loadRnnoise } from "@sapphi-red/web-noise-suppressor";
+import rnnoiseWorkletPath from "@sapphi-red/web-noise-suppressor/rnnoiseWorklet.js?url";
+import rnnoiseWasmPath from "@sapphi-red/web-noise-suppressor/rnnoise.wasm?url";
+import rnnoiseWasmSimdPath from "@sapphi-red/web-noise-suppressor/rnnoise_simd.wasm?url";
 
 export class VoiceManager {
   public socket: Socket | null = null;
@@ -10,9 +14,16 @@ export class VoiceManager {
   private scriptProcessor: ScriptProcessorNode | null = null;
   
   // Audio Config
-  private micVolume: number = 0.3;
+  private micVolume: number = 1.0;
   private headphoneVolume: number = 1.0;
-  private noiseGateThreshold: number = 0.01;
+  private noiseGateThreshold: number = 0.015; // Linear: slider 0→1 maps to 0→0.1
+  private noiseGateOpen: boolean = false;
+  private noiseGateHoldTimer: number = 0; // timestamp when gate should close
+  private static readonly NOISE_GATE_HOLD_MS: number = 150; // ms to keep gate open after signal drops
+  
+  // RNNoise
+  private rnnoiseNode: RnnoiseWorkletNode | null = null;
+  private noiseSuppression: boolean = true;
   
   private masterGainNode: GainNode | null = null;
   private micGainNode: GainNode | null = null;
@@ -65,7 +76,7 @@ export class VoiceManager {
       
       // During champ_select and loading, everyone hears everyone regardless of mode
       if (["champ_select", "loading", "lobby"].includes(this.currentGamePhase)) {
-          return { volume: 1.2, filterFreq: defaultFreq };
+          return { volume: 0.85, filterFreq: defaultFreq };
       }
       
       // 1. Resolve teams from Server Roster directly
@@ -79,11 +90,11 @@ export class VoiceManager {
               }
           }
           if (myTeam && theirTeam && myTeam !== theirTeam) return { volume: 0.0, filterFreq: defaultFreq };
-          if (!this.isProximityMode) return { volume: 1.2, filterFreq: defaultFreq };
+          if (!this.isProximityMode) return { volume: 0.85, filterFreq: defaultFreq };
       }
       
       if (!this.isProximityMode) {
-          return { volume: 1.2, filterFreq: defaultFreq };
+          return { volume: 0.85, filterFreq: defaultFreq };
       }
       
       // 2. Spatial Proximity Logic
@@ -93,7 +104,7 @@ export class VoiceManager {
       if (!me || !them) return { volume: 0.0, filterFreq: defaultFreq };
       if (me.is_dead || them.is_dead) {
           const bothDead = me.is_dead && them.is_dead;
-          return { volume: (this.roomDeadChat && bothDead) ? 1.2 : 0.0, filterFreq: defaultFreq };
+          return { volume: (this.roomDeadChat && bothDead) ? 0.85 : 0.0, filterFreq: defaultFreq };
       }
       if (me.x < 0 || them.x < 0) return { volume: 0.0, filterFreq: defaultFreq };
       
@@ -119,13 +130,13 @@ export class VoiceManager {
           maxDist = 80;
       }
 
-      if (dist <= startDropDist) return { volume: 1.2, filterFreq: defaultFreq };
+      if (dist <= startDropDist) return { volume: 0.85, filterFreq: defaultFreq };
       if (dist >= maxDist) return { volume: 0.0, filterFreq: defaultFreq };
 
       // Simple Linear Fade
       const range = maxDist - startDropDist;
       const normalizedDist = (dist - startDropDist) / range; // 0 to 1
-      let vol = (1.0 - normalizedDist) * 1.2; 
+      let vol = (1.0 - normalizedDist) * 0.85; 
       
       let freq = defaultFreq; // No fancy filters
       
@@ -180,10 +191,42 @@ export class VoiceManager {
   }
 
   public setNoiseGate(threshold: number) {
-      // Use squared scaling to give more sensitive control at lower end
-      // 70% slider = ~0.05 threshold (what 5% used to be - much less brutal)
-      this.noiseGateThreshold = Math.pow(threshold, 2) * 0.1;
+      // Linear mapping: slider 0→1 maps to threshold 0→0.1
+      this.noiseGateThreshold = threshold * 0.1;
   }
+  
+  public setNoiseSuppression(enabled: boolean) {
+      this.noiseSuppression = enabled;
+      if (this.rnnoiseNode) {
+          // Bypass by disconnecting/reconnecting
+          // We'll handle this via the flag in the audio chain
+          try {
+              if (enabled) {
+                  // Reconnect rnnoise into the chain
+                  if (this.micGainNode && this.scriptProcessor) {
+                      this.micGainNode.disconnect();
+                      this.micGainNode.connect(this.rnnoiseNode);
+                      this.rnnoiseNode.connect(this.scriptProcessor);
+                  }
+              } else {
+                  // Bypass rnnoise: connect mic gain directly to script processor
+                  if (this.micGainNode && this.scriptProcessor) {
+                      this.micGainNode.disconnect();
+                      this.rnnoiseNode.disconnect();
+                      this.micGainNode.connect(this.scriptProcessor);
+                  }
+              }
+          } catch (e) {
+              console.warn("[VoiceManager] Failed to toggle noise suppression:", e);
+          }
+      }
+  }
+  
+  /** Returns the current mic input level (0-1) for UI metering */
+  public getMicLevel(): number {
+      return this._lastMicLevel;
+  }
+  private _lastMicLevel: number = 0;
 
   public setPlayerName(name: string) {
       if (name) this.localPlayerName = name;
@@ -378,7 +421,7 @@ export class VoiceManager {
               filterNode.connect(gainNode);
 
               const isPreGame = ["lobby", "champ_select", "loading"].includes(this.currentGamePhase);
-              gainNode.gain.value = isPreGame ? 1.0 : 0.0;
+              gainNode.gain.value = isPreGame ? 0.85 : 0.0;
               
               if (this.masterGainNode) {
                   gainNode.connect(this.masterGainNode);
@@ -446,8 +489,28 @@ export class VoiceManager {
       // 4096 samples (~85ms @ 48kHz) - larger buffer is more stable and reduces CPU overhead
       this.scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
       
+      // ──── RNNOISE: Register AudioWorklet for noise suppression ────
+      try {
+          const wasmBinary = await loadRnnoise({ url: rnnoiseWasmPath, simdUrl: rnnoiseWasmSimdPath });
+          await this.audioContext.audioWorklet.addModule(rnnoiseWorkletPath);
+          this.rnnoiseNode = new RnnoiseWorkletNode(this.audioContext, {
+              maxChannels: 1,
+              wasmBinary
+          });
+          console.log("[VoiceManager] RNNoise noise suppression loaded.");
+      } catch (rnnoiseErr) {
+          console.warn("[VoiceManager] Failed to load RNNoise, running without noise suppression:", rnnoiseErr);
+          this.rnnoiseNode = null;
+      }
+      
+      // Build mic chain: Source → MicGain → [RNNoise] → ScriptProcessor → Destination(silent)
       source.connect(this.micGainNode);
-      this.micGainNode.connect(this.scriptProcessor);
+      if (this.rnnoiseNode && this.noiseSuppression) {
+          this.micGainNode.connect(this.rnnoiseNode);
+          this.rnnoiseNode.connect(this.scriptProcessor);
+      } else {
+          this.micGainNode.connect(this.scriptProcessor);
+      }
       // Connect to destination so the processor fires, but zero its output to prevent local echo
       this.scriptProcessor.connect(this.audioContext.destination);
       
@@ -461,13 +524,24 @@ export class VoiceManager {
         
         const input = e.inputBuffer.getChannelData(0);
         
-        // Noise gate: only send if signal exceeds threshold (but don't stutter)
+        // Compute mic level for UI metering
         let maxAmp = 0;
         for (let i = 0; i < input.length; i++) {
             const amp = Math.abs(input[i]);
             if (amp > maxAmp) maxAmp = amp;
         }
-        if (maxAmp < this.noiseGateThreshold) return; // Silent — just skip, no stutter
+        this._lastMicLevel = maxAmp;
+        
+        // Noise gate with hold timer to prevent choppy cutoffs
+        const now = performance.now();
+        if (maxAmp >= this.noiseGateThreshold) {
+            this.noiseGateOpen = true;
+            this.noiseGateHoldTimer = now + VoiceManager.NOISE_GATE_HOLD_MS;
+        } else if (this.noiseGateOpen && now >= this.noiseGateHoldTimer) {
+            this.noiseGateOpen = false;
+        }
+        
+        if (!this.noiseGateOpen) return; // Silent — skip
         
         if (this.onSpeakerActive) {
             this.onSpeakerActive(this.localPlayerName);
@@ -549,6 +623,10 @@ export class VoiceManager {
     if (this.syncCheckInterval) {
         clearInterval(this.syncCheckInterval);
         this.syncCheckInterval = null;
+    }
+    if (this.rnnoiseNode) {
+        try { this.rnnoiseNode.destroy(); } catch (e) {}
+        this.rnnoiseNode = null;
     }
     if (this.scriptProcessor) {
         this.scriptProcessor.disconnect();
