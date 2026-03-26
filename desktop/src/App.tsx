@@ -86,7 +86,6 @@ function App() {
   const [currentStream, setCurrentStream] = useState<{ name: string, frame: string, width: number, height: number } | null>(null);
   const [streamingPlayers, setStreamingPlayers] = useState<Set<string>>(new Set());
   const [captureSources, setCaptureSources] = useState<{id: string, name: string}[]>([]);
-  const [selectedCaptureSource, setSelectedCaptureSource] = useState<string>("window_lol");
   const [showStreamPickerModal, setShowStreamPickerModal] = useState(false);
 
   // Champion avatar mapping (playerName -> championName) for DDragon images
@@ -576,7 +575,6 @@ function App() {
 
   const startStreamWithSource = async (sourceId: string) => {
     if (!voiceManagerRef.current || !sidecarChildRef.current) return;
-    setSelectedCaptureSource(sourceId);
     setShowStreamPickerModal(false);
     setIsStreaming(true);
     voiceManagerRef.current.setStreaming(true);
