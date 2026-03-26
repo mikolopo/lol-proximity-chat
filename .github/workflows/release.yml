@@ -101,4 +101,4 @@ jobs:
           gh release upload $tag $msiZip --clobber --repo $repo
           gh release upload $tag latest.json --clobber --repo $repo
 
-          Remove-Item $keyPath -Force
+
