@@ -52,5 +52,52 @@ jobs:
           releaseBody: "See the assets below to download and install this version."
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true
+          includeUpdaterJson: false
+
+      - name: Sign bundles and upload latest.json
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          $tag     = "${{ github.ref_name }}"
+          $version = $tag.TrimStart("v")
+          $bundle  = "desktop/src-tauri/target/release/bundle"
+          $repo    = "${{ github.repository }}"
+          $baseUrl = "https://github.com/$repo/releases/download/$tag"
+          
+          # Helper to zip + sign a file (TAURI_SIGNING_PRIVATE_KEY env var is already set)
+          function Sign-Bundle($srcPath, $zipPath) {
+            7z a -tzip $zipPath $srcPath
+            $tauriBin = "desktop/node_modules/.bin/tauri"
+            & $tauriBin signer sign --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $zipPath
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
+          }
+          
+          $msiSrc  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi"
+          $msiZip  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi.zip"
+          
+          Sign-Bundle $msiSrc $msiZip
+          
+          $msiSig = (Get-Content "$msiZip.sig" -Raw).Trim()
+          
+          # Build latest.json
+          $latestJson = @{
+            version  = $version
+            notes    = ""
+            pub_date = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $msiSig
+                url       = "$baseUrl/LoLProximityChat_${version}_x64_en-US.msi.zip"
+              }
+            }
+          } | ConvertTo-Json -Depth 10
+          
+          $latestJson | Set-Content "latest.json" -Encoding utf8
+          
+          # Upload signed zip and latest.json
+          gh release upload $tag $msiZip --clobber --repo $repo
+          gh release upload $tag latest.json --clobber --repo $repo
 
