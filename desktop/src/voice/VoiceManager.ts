@@ -199,28 +199,23 @@ export class VoiceManager {
   }
   
   public setNoiseSuppression(enabled: boolean) {
+      if (this.noiseSuppression === enabled) return;
       this.noiseSuppression = enabled;
-      if (this.rnnoiseNode) {
-          // Bypass by disconnecting/reconnecting
-          // We'll handle this via the flag in the audio chain
+      
+      // Hot-swap the audio graph for live voice if active
+      if (this.micGainNode && this.scriptProcessor) {
           try {
-              if (enabled) {
-                  // Reconnect rnnoise into the chain
-                  if (this.micGainNode && this.scriptProcessor) {
-                      this.micGainNode.disconnect();
-                      this.micGainNode.connect(this.rnnoiseNode);
-                      this.rnnoiseNode.connect(this.scriptProcessor);
-                  }
+              this.micGainNode.disconnect();
+              if (this.rnnoiseNode) this.rnnoiseNode.disconnect();
+              
+              if (enabled && this.rnnoiseNode) {
+                  this.micGainNode.connect(this.rnnoiseNode);
+                  this.rnnoiseNode.connect(this.scriptProcessor);
               } else {
-                  // Bypass rnnoise: connect mic gain directly to script processor
-                  if (this.micGainNode && this.scriptProcessor) {
-                      this.micGainNode.disconnect();
-                      this.rnnoiseNode.disconnect();
-                      this.micGainNode.connect(this.scriptProcessor);
-                  }
+                  this.micGainNode.connect(this.scriptProcessor);
               }
           } catch (e) {
-              console.warn("[VoiceManager] Failed to toggle noise suppression:", e);
+              console.warn("[VoiceManager] Failed to hot-swap noise suppression:", e);
           }
       }
   }

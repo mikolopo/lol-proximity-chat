@@ -887,7 +887,14 @@ function App() {
                                 onClick={() => {
                                     const next = !noiseSuppression;
                                     setNoiseSuppression(next);
-                                    if (voiceManagerRef.current) voiceManagerRef.current.setNoiseSuppression(next);
+                                    if (voiceManagerRef.current) {
+                                        voiceManagerRef.current.setNoiseSuppression(next);
+                                        if (isMicTesting) {
+                                            voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
+                                                voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
+                                            });
+                                        }
+                                    }
                                 }}
                                 className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${noiseSuppression ? 'bg-accent' : 'bg-[#4f545c]'}`}
                             >
@@ -906,6 +913,14 @@ function App() {
                                     const v = Number(e.target.value);
                                     setNoiseGate(v);
                                     if (voiceManagerRef.current) voiceManagerRef.current.setNoiseGate(v);
+                                }}
+                                onMouseUp={() => {
+                                    // Optional: restart or sync test dynamically on slider release
+                                    if (isMicTesting && voiceManagerRef.current) {
+                                        voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
+                                            voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
+                                        });
+                                    }
                                 }}
                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent"
                             />
