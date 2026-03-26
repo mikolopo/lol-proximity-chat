@@ -45,7 +45,7 @@ function App() {
   const [appVersion, setAppVersion] = useState<string>("");
 
   useEffect(() => {
-    getVersion().then(setAppVersion).catch(e => setAppVersion("Unknown"));
+    getVersion().then(setAppVersion).catch(() => setAppVersion("Unknown"));
   }, []);
 
   // Chat State — per-room message history
