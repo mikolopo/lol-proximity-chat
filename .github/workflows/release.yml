@@ -74,11 +74,11 @@ jobs:
           # Helper to zip + sign a file
           function Sign-Bundle($srcPath, $zipPath) {
             Compress-Archive -Path $srcPath -DestinationPath $zipPath -CompressionLevel Optimal -Force
-            $sigArgs = @("tauri", "signer", "sign",
-              "--private-key-path", $keyPath,
-              "--password", $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
-              $zipPath)
-            & npx @sigArgs
+            $tauriBin = "desktop/node_modules/.bin/tauri"
+            & $tauriBin signer sign `
+              --private-key-path $keyPath `
+              --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD `
+              $zipPath
             if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
           }
 
