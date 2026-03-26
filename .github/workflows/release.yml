@@ -68,9 +68,11 @@ jobs:
           $baseUrl = "https://github.com/$repo/releases/download/$tag"
           
           # Helper to zip + sign a file (TAURI_SIGNING_PRIVATE_KEY env var is already set)
+          # We use 7z with -mx0 (Zero compression / STORE method) because the Rust Zip library
+          # built into existing app versions often rejects advanced compression algorithms.
           function Sign-Bundle($srcPath, $zipPath) {
-            Write-Host "Zipping $srcPath to $zipPath using standard format..."
-            Compress-Archive -Path $srcPath -DestinationPath $zipPath -Force
+            Write-Host "Zipping $srcPath to $zipPath with ZERO compression to prevent unzipping errors..."
+            7z a -tzip -mx0 $zipPath $srcPath
             Write-Host "Signing..."
             $tauriBin = "desktop/node_modules/.bin/tauri"
             & $tauriBin signer sign --password $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD $zipPath
