@@ -887,19 +887,7 @@ function App() {
                                ))}
                             </select>
                         </div>
-                        <div>
-                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Screen Share Source</label>
-                            <select 
-                               value={selectedCaptureSource}
-                               onChange={e => setSelectedCaptureSource(e.target.value)}
-                               className="w-full bg-[#202225] text-text-normal px-3 py-2.5 rounded text-[14px] outline-none focus:ring-1 focus:ring-accent appearance-none cursor-pointer"
-                            >
-                               <option value="window_lol">League of Legends Window (Default)</option>
-                               {captureSources.map(s => (
-                                   <option key={s.id} value={s.id}>{s.name || s.id}</option>
-                               ))}
-                            </select>
-                        </div>
+
                     </div>
                  </div>
 
@@ -928,7 +916,9 @@ function App() {
                         >
                             {isCheckingUpdate ? "Checking..." : "Check for Updates"}
                         </button>
-                        {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}`r`n                         <p className="text-xs text-[#8e9297] mt-3">Version 1.0.2</p>`r`n                    </div>
+                        {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}
+                         <p className="text-xs text-[#8e9297] mt-3">Version 1.0.2</p>
+                    </div>
                  </div>
                  
                   <div className="pt-4 border-t border-[#202225]">
