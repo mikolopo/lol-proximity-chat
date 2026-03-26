@@ -54,26 +54,42 @@ jobs:
           prerelease: false
           includeUpdaterJson: false
 
-      - name: Upload latest.json
+      - name: Sign bundles and upload latest.json
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
-          $tag = "${{ github.ref_name }}"
+          $tag     = "${{ github.ref_name }}"
           $version = $tag.TrimStart("v")
-          $bundleDir = "desktop/src-tauri/target/release/bundle"
-
-          $msiSigPath = "$bundleDir/msi/LoLProximityChat_${version}_x64_en-US.msi.zip.sig"
-          $nsisSigPath = "$bundleDir/nsis/LoLProximityChat_${version}_x64-setup.nsis.zip.sig"
-
-          if (-not (Test-Path $msiSigPath)) { Write-Error "MSI sig not found"; exit 1 }
-
-          $msiSig  = (Get-Content $msiSigPath  -Raw).Trim()
-          $nsisSig = if (Test-Path $nsisSigPath) { (Get-Content $nsisSigPath -Raw).Trim() } else { $msiSig }
-
-          $repo = "${{ github.repository }}"
+          $bundle  = "desktop/src-tauri/target/release/bundle"
+          $repo    = "${{ github.repository }}"
           $baseUrl = "https://github.com/$repo/releases/download/$tag"
 
+          # Write private key to a temp file
+          $keyPath = "$env:TEMP\tauri-signing.key"
+          $env:TAURI_SIGNING_PRIVATE_KEY | Set-Content $keyPath -Encoding utf8 -NoNewline
+
+          # Helper to zip + sign a file
+          function Sign-Bundle($srcPath, $zipPath) {
+            Compress-Archive -Path $srcPath -DestinationPath $zipPath -CompressionLevel Optimal -Force
+            $sigArgs = @("tauri", "signer", "sign",
+              "--private-key-path", $keyPath,
+              "--password", $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+              $zipPath)
+            & npx @sigArgs
+            if ($LASTEXITCODE -ne 0) { throw "Signing failed for $zipPath" }
+          }
+
+          $msiSrc  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi"
+          $msiZip  = "$bundle/msi/LoLProximityChat_${version}_x64_en-US.msi.zip"
+
+          Sign-Bundle $msiSrc $msiZip
+
+          $msiSig = (Get-Content "$msiZip.sig" -Raw).Trim()
+
+          # Build latest.json
           $latestJson = @{
             version  = $version
             notes    = ""
@@ -87,4 +103,9 @@ jobs:
           } | ConvertTo-Json -Depth 10
 
           $latestJson | Set-Content "latest.json" -Encoding utf8
+
+          # Upload signed zip and latest.json
+          gh release upload $tag $msiZip --clobber --repo $repo
           gh release upload $tag latest.json --clobber --repo $repo
+
+          Remove-Item $keyPath -Force
