@@ -1,0 +1,14 @@
+{
+  "name": "lol-proximity-chat-server",
+  "version": "1.0.0",
+  "description": "Voice relay server for LoL Proximity Chat",
+  "main": "voice_server.js",
+  "scripts": {
+    "start": "node voice_server.js",
+    "dev": "node voice_server.js"
+  },
+  "dependencies": {
+    "socket.io": "^4.8.0"
+  },
+  "author": "mikolopo"
+}

@@ -1,0 +1,42 @@
+# Python
+.venv/
+.venv_build/
+__pycache__/
+*.pyc
+*.pyo
+
+# Node
+node_modules/
+dist/
+build/
+.next/
+.nuxt/
+.vercel/
+coverage/
+
+# Tauri / Rust
+desktop/src-tauri/target/
+target/
+*.rs.bk
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/
+
+# Secrets & Keys
+*.key
+*.key.pub
+.env
+*.log
+
+# PyInstaller builds
+build/
+dist/
+*.spec
+!python-worker-x86_64-pc-windows-msvc.spec
+!dump_bundle.spec
+_archive/
+*.exe

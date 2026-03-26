@@ -1,0 +1,63 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      - name: Install frontend deps
+        run: npm install
+        working-directory: desktop
+
+      - name: Download Python worker from release assets
+        shell: pwsh
+        run: |
+          $exeName = "python-worker-x86_64-pc-windows-msvc.exe"
+          $dest = "desktop/src-tauri/$exeName"
+          Write-Host "Downloading pre-built Python worker..."
+          $url = "https://github.com/${{ github.repository }}/releases/download/python-worker-latest/$exeName"
+          try {
+            Invoke-WebRequest -Uri $url -OutFile $dest -Headers @{ Authorization = "token ${{ secrets.GITHUB_TOKEN }}" }
+            Write-Host "Downloaded successfully."
+          } catch {
+            Write-Host "ERROR: Could not download $exeName from release 'python-worker-latest'."
+            Write-Host "Please upload the built exe to a GitHub Release tagged 'python-worker-latest' first."
+            exit 1
+          }
+
+      - name: Build and publish release
+        uses: tauri-apps/tauri-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          tagName: ${{ github.ref_name }}
+          releaseName: "Release ${{ github.ref_name }}"
+          releaseBody: "See the assets below to download and install this version."
+          releaseDraft: false
+          prerelease: false
+          includeUpdaterJson: true
