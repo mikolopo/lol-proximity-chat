@@ -76,7 +76,7 @@ export class VoiceManager {
       
       // During champ_select and loading, everyone hears everyone regardless of mode
       if (["champ_select", "loading", "lobby"].includes(this.currentGamePhase)) {
-          return { volume: 0.85, filterFreq: defaultFreq };
+          return { volume: 2.0, filterFreq: defaultFreq };
       }
       
       // 1. Resolve teams from Server Roster directly
@@ -90,11 +90,11 @@ export class VoiceManager {
               }
           }
           if (myTeam && theirTeam && myTeam !== theirTeam) return { volume: 0.0, filterFreq: defaultFreq };
-          if (!this.isProximityMode) return { volume: 0.85, filterFreq: defaultFreq };
+          if (!this.isProximityMode) return { volume: 2.0, filterFreq: defaultFreq };
       }
       
       if (!this.isProximityMode) {
-          return { volume: 0.85, filterFreq: defaultFreq };
+          return { volume: 2.0, filterFreq: defaultFreq };
       }
       
       // 2. Spatial Proximity Logic
@@ -104,15 +104,15 @@ export class VoiceManager {
       if (!me || !them) return { volume: 0.0, filterFreq: defaultFreq };
       if (me.is_dead || them.is_dead) {
           const bothDead = me.is_dead && them.is_dead;
-          return { volume: (this.roomDeadChat && bothDead) ? 0.85 : 0.0, filterFreq: defaultFreq };
+          return { volume: (this.roomDeadChat && bothDead) ? 2.0 : 0.0, filterFreq: defaultFreq };
       }
       if (me.x < 0 || them.x < 0) return { volume: 0.0, filterFreq: defaultFreq };
       
       const dist = Math.sqrt(Math.pow(me.x - them.x, 2) + Math.pow(me.y - them.y, 2));
 
       // Thresholds
-      let startDropDist = 70;
-      let maxDist = 120;
+      let startDropDist = 80;
+      let maxDist = 150;
       
       let myTeam = "";
       for (const [t, champs] of Object.entries(this.teamRosters)) {
@@ -126,17 +126,17 @@ export class VoiceManager {
       const theySeeMe = enemyTeam ? (me.seen_by?.[enemyTeam] === true) : true;
 
       if (iSeeThem && !theySeeMe) {
-          startDropDist = 30; // Stealth hearing starts dropping at 30 units
-          maxDist = 80;
+          startDropDist = 40; // Stealth hearing starts dropping earlier
+          maxDist = 100;
       }
 
-      if (dist <= startDropDist) return { volume: 0.85, filterFreq: defaultFreq };
+      if (dist <= startDropDist) return { volume: 2.0, filterFreq: defaultFreq };
       if (dist >= maxDist) return { volume: 0.0, filterFreq: defaultFreq };
 
       // Simple Linear Fade
       const range = maxDist - startDropDist;
       const normalizedDist = (dist - startDropDist) / range; // 0 to 1
-      let vol = (1.0 - normalizedDist) * 0.85; 
+      let vol = (1.0 - normalizedDist) * 2.0; 
       
       let freq = defaultFreq; // No fancy filters
       
@@ -426,7 +426,7 @@ export class VoiceManager {
               filterNode.connect(gainNode);
 
               const isPreGame = ["lobby", "champ_select", "loading"].includes(this.currentGamePhase);
-              gainNode.gain.value = isPreGame ? 0.85 : 0.0;
+              gainNode.gain.value = isPreGame ? 2.0 : 0.0;
               
               if (this.masterGainNode) {
                   gainNode.connect(this.masterGainNode);
@@ -458,9 +458,18 @@ export class VoiceManager {
         await this.audioContext.resume();
     }
     
+    const compressor = this.audioContext.createDynamicsCompressor();
+    compressor.threshold.value = -12; // Start compressing early to prevent distortion
+    compressor.knee.value = 40;       // Smooth transition
+    compressor.ratio.value = 8;       // Strong compression to tame volume spikes
+    compressor.attack.value = 0.005;  // Very fast attack
+    compressor.release.value = 0.25;  // Smooth release
+    
     this.masterGainNode = this.audioContext.createGain();
     this.masterGainNode.gain.value = this.headphoneVolume;
-    this.masterGainNode.connect(this.audioContext.destination);
+    
+    this.masterGainNode.connect(compressor);
+    compressor.connect(this.audioContext.destination);
     
     if (speakerId && speakerId !== "default" && typeof (this.audioContext as any).setSinkId === 'function') {
         try {
@@ -724,7 +733,8 @@ export class VoiceManager {
       
       const source = this.testAudioContext.createMediaStreamSource(this.testStream);
       this.testMicGainNode = this.testAudioContext.createGain();
-      this.testMicGainNode.gain.value = this.micVolume * 0.7;
+      // Apply the same 2.0x makeup gain here so the test reflects actual broadcast output
+      this.testMicGainNode.gain.value = this.micVolume * 0.7 * 2.0;
       
       this.testSpeakerGainNode = this.testAudioContext.createGain();
       this.testSpeakerGainNode.gain.value = this.headphoneVolume;
