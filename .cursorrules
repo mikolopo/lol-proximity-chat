@@ -1,0 +1,89 @@
+# LoL Proximity Chat - AI Agent Instructions
+
+Welcome to the LoL Proximity Chat codebase! This file contains essential context and guidelines for AI agents working on this project. Please read this entirely before making changes.
+
+## 🏗️ Project Architecture
+
+This application consists of three main components that communicate with each other:
+
+1. **`client/` (Python Sidecar / Detection Engine)**
+   - **Role:** Handles computer vision, screen capture, and League Client API interactions.
+   - **Tech:** Python 3.10+, OpenCV, Ultralytics YOLO (`best.onnx`), `mss` for fast screen capture.
+   - **How it works:** It captures the bottom-right corner of the screen (the minimap), runs a YOLO model to detect champion icons, and outputs JSON events to `stdout`. It also queries the LCU API and Live Game API (127.0.0.1:2999) to get team rosters and game state.
+   - **Key files:** 
+     - `client/detection/yolo_minimap.py` (Core detection logic)
+     - `client/capture/screen.py` (Screen capture)
+
+2. **`desktop/` (Tauri Desktop App)**
+   - **Role:** The main user interface, voice audio pipeline, and the host for the Python sidecar.
+   - **Tech:** React, TypeScript, TailwindCSS, Tauri (Rust), Web Audio API, `@sapphi-red/web-noise-suppressor` (RNNoise WASM).
+   - **How it works:** It spawns the Python process (`client/`) as a Tauri Sidecar and listens to its `stdout` for game state and player positions. It simultaneously connects to the Socket.IO `server/` to transmit and receive voice data. Audio volume is dynamically adjusted based on the distance calculated from the YOLO minimap positions.
+   - **Key files:**
+     - `desktop/src/App.tsx` (Main UI, sidecar process management, WebRTC/Socket orchestration)
+     - `desktop/src/voice/VoiceManager.ts` (Web Audio API pipeline, RNNoise filtering, volume calculations based on distance)
+     - `desktop/src-tauri/tauri.conf.json` (Tauri configuration, bundle settings)
+
+3. **`server/` (Voice Relay Server)**
+   - **Role:** A lightweight signaling and relay server for voice data.
+   - **Tech:** Node.js, Socket.IO.
+   - **How it works:** Clients connect to rooms. The server receives Base64-encoded Float32 PCM audio chunks from players and broadcasts them to everyone else in the room alongside their minimap position data.
+   - **Key files:**
+     - `server/voice_server.js` (Core server logic)
+
+---
+
+## 🛠️ Development Workflows
+
+### Running the App Locally (Dev Mode)
+1. Both the desktop app and the Python sidecar can be run together using Tauri dev mode:
+   ```bash
+   cd desktop
+   npm run tauri dev
+   ```
+   *Note: Ensure Python dependencies in `requirements.txt` are installed in the environment.*
+
+2. The voice server must be running separately:
+   ```bash
+   cd server
+   npm start # or run start_server.bat
+   ```
+
+### Building for Production
+- To build the standalone installer (MSI/NSIS):
+  ```bash
+  cd desktop
+  npm run tauri build
+  ```
+- Or run the `build.bat` script in the root directory.
+
+---
+
+## ⚠️ Important Rules & Gotchas for AI Agents
+
+1. **Voice Pipeline (`VoiceManager.ts`)**
+   - **DO NOT** use default browser `echoCancellation` or `noiseSuppression` constraints in `getUserMedia`. We disable these explicitly because they interfere with our custom RNNoise worklet and spatial audio logic.
+   - Voice is captured as Float32 PCM, processed via `RnnoiseWorkletNode`, and chunked into Base64 strings to send over Socket.IO.
+   - Volume calculation handles edge cases: dead players can hear each other at full volume, teammates hear each other globally (if in team mode), and enemies fade out based on a linear distance algorithm.
+
+2. **Python Sidecar Communication**
+   - The React app (`App.tsx`) communicates with Python strictly by reading `stdout` (JSON lines) and writing to `stdin`.
+   - **DO NOT** add verbose `print()` statements to the Python code unless they are strictly formatted JSON events, because it will break the JSON parser in `App.tsx`. Use standard logging or ensure all stdout prints are JSON.
+
+3. **YOLO Detection (`client/`)**
+   - The YOLO model (`client/detection/best.onnx`) is trained specifically on League of Legends minimap champion icons. When new champions are released, this model must be retrained.
+
+4. **UI Design (`desktop/src/`)**
+   - Use Tailwind CSS strictly. Do not create new vanilla CSS files unless absolutely necessary.
+   - Follow the existing dark theme aesthetic (`bg-[#36393f]`, `text-[#dcddde]`, `accent` colors).
+
+5. **Version Bumps**
+   - When releasing, versions must be bumped synchronously in:
+     - `desktop/package.json`
+     - `desktop/src-tauri/tauri.conf.json`
+     - `desktop/src-tauri/Cargo.toml`
+   - Use `npm install` inside `desktop/` to generate the new `package-lock.json` after bumping versions.
+
+6. **Git / GitHub Workflow**
+   - **DO NOT** push directly to the `main` branch.
+   - All code changes, features, and bug fixes must be committed and pushed to the `development` branch.
+   - Example: `git checkout development`, `git commit -m "..."`, `git push origin development`.
