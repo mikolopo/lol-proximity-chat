@@ -8,9 +8,9 @@ WORKDIR /app
 # Install native build tools for sqlite3/bcrypt if needed
 RUN apt-get update && apt-get install -y python3 make g++ sqlite3 libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies first (caching layer)
+# Install dependencies and force native compilation to bypass GLIBC mismatch
 COPY package.json package-lock.json* ./
-RUN npm ci --production
+RUN npm ci --production --build-from-source=sqlite3
 
 
 # Copy all server code (including auth, db, version, etc)
