@@ -281,6 +281,7 @@ async function removePlayer(sid) {
         // Notify remaining players using native room broadcast
         io.to(roomCode).emit("player_left", {
             player_name: player.playerName,
+            user_id: player.userId
         });
         log(`${player.playerName} left room '${roomCode}' (${room.players.size} remaining)`);
     }
@@ -450,14 +451,14 @@ io.on("connection", (socket) => {
 
     socket.on("kick_player", async (data) => {
         const roomCode = sidToRoom.get(socket.id);
-        if (!roomCode || !data.target_name) return;
+        if (!roomCode || !data.target_user_id) return;
         const room = rooms.get(roomCode);
         if (!room || room.hostId !== socket.userId) return; // Must be host
         
         let targetSid = null;
         let targetPlayer = null;
         for (const [sid, p] of room.players.entries()) {
-            if (p.playerName === data.target_name) {
+            if (p.userId === data.target_user_id) {
                 targetSid = sid;
                 targetPlayer = p;
                 break;
@@ -743,6 +744,7 @@ io.on("connection", (socket) => {
 
         // Relay to all others using native Socket.IO room broadcast (excludes sender)
         const relayPayload = {
+            user_id: player.userId,
             player_name: player.playerName,
             champion_name: player.championName,
             audio: data.audio,
@@ -788,6 +790,7 @@ io.on("connection", (socket) => {
         if (!message.trim()) return;
 
         const payload = {
+            sender_id: player.userId,
             sender: player.playerName,
             message,
             timestamp: Date.now(),

@@ -37,10 +37,11 @@ function App() {
   type RoomInfo = { 
     id: string, 
     mode: 'global' | 'team' | 'proximity',
-    host_id?: number,
+    host_id?: string,
     is_locked?: boolean,
     has_password?: boolean,
-    players_data?: { name: string, champ: string, user_id: number }[]
+    players_data?: { name: string, champ: string, user_id: string }[],
+    password?: string
   };
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [activeRoom, setActiveRoom] = useState<RoomInfo | null>(null); // The room we are connected to
@@ -69,6 +70,7 @@ function App() {
   // Modals & UI Form
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'debug'>('profile');
   const [newRoomInput, setNewRoomInput] = useState("");
   const [newRoomMode, setNewRoomMode] = useState<'global' | 'team' | 'proximity'>('proximity');
 
@@ -133,9 +135,9 @@ function App() {
 
   // Auth state
   const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem("token"));
-  const [userId, setUserId] = useState<number | null>(() => {
+  const [userId, setUserId] = useState<string | null>(() => {
     const saved = localStorage.getItem("userId");
-    return saved ? parseInt(saved) : null;
+    return saved ? saved : null;
   });
   
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -228,8 +230,12 @@ function App() {
 
   // Global socket for real-time room discovery (replaces HTTP polling)
   useEffect(() => {
+    if (!authToken) return; // Don't connect until logged in
     const normalizedUrl = backendUrl.startsWith('http') ? backendUrl : `http://${backendUrl}`;
-    const socket = io(normalizedUrl, { reconnection: true });
+    const socket = io(normalizedUrl, { 
+      reconnection: true,
+      auth: { token: authToken, version: appVersion || "1.1.2" }
+    });
     globalSocketRef.current = socket;
 
     socket.on("connect", () => {
@@ -240,10 +246,13 @@ function App() {
       const serverRooms: RoomInfo[] = (data.rooms || []).map((r: any) => ({
         id: r.code,
         mode: r.type === 'proximity' ? 'proximity' : (r.team_only ? 'team' : 'global'),
-        host_id: r.host_id,
+        host_id: r.host_id?.toString(),
         is_locked: r.is_locked,
         has_password: r.has_password,
-        players_data: r.players_data
+        players_data: (r.players_data || []).map((p: any) => ({
+          ...p,
+          user_id: p.user_id?.toString()
+        }))
       }));
       
       setRooms(serverRooms);
@@ -268,7 +277,7 @@ function App() {
       socket.disconnect();
       globalSocketRef.current = null;
     };
-  }, [backendUrl]);
+  }, [backendUrl, authToken, appVersion]);
 
   const closeSettings = () => {
       setShowSettingsModal(false);
@@ -417,27 +426,28 @@ function App() {
     };
   }, []);
 
-  const handleSpeakerActive = (speaker: string) => {
-     setKnownPeers(prev => new Set(prev).add(speaker));
+  const handleSpeakerActive = (speakerId: string | number) => {
+     const id = speakerId.toString();
+     setKnownPeers(prev => new Set(prev).add(id));
      setActiveSpeakers(prev => {
         const next = new Set(prev);
-        next.add(speaker);
+        next.add(id);
         return next;
      });
      
-     if (speakerTimeouts.current[speaker]) {
-         clearTimeout(speakerTimeouts.current[speaker]);
+     if (speakerTimeouts.current[id]) {
+         clearTimeout(speakerTimeouts.current[id]);
      }
      
-     speakerTimeouts.current[speaker] = setTimeout(() => {
+     speakerTimeouts.current[id] = setTimeout(() => {
          setActiveSpeakers(prev => {
              const next = new Set(prev);
-             next.delete(speaker);
+             next.delete(id);
              return next;
          });
      }, 300);
   };
-
+  
   const toggleMic = () => {
      const nextState = !isMicMuted;
      setIsMicMuted(nextState);
@@ -489,6 +499,9 @@ function App() {
     if (localChampion) {
         voiceManagerRef.current.setChampionName(localChampion);
     }
+    if (userId) {
+        voiceManagerRef.current.setUserId(userId);
+    }
     
     try {
         const isProximity = targetRoom.mode === 'proximity';
@@ -509,66 +522,64 @@ function App() {
               const names = (data.players || []).map((p: any) => typeof p === 'string' ? p : p.name);
               setLogs(l => [...l.slice(-50), `[SERVER] Joined room ${data.room_code} — Players: ${names.join(', ')}`]);
               playNotificationSound('join');
-              // Add peers from server response (now objects { name, champ })
+              // Add peers from server response
               if (data.players) {
                 const newChamps: Record<string, string> = {};
                 data.players.forEach((p: any) => {
                   const pName = typeof p === 'string' ? p : p.name;
+                  const pUserId = typeof p === 'object' ? p.user_id?.toString() : undefined;
                   const pChamp = typeof p === 'object' ? p.champ : '';
-                  if (pName !== playerName) setKnownPeers(prev => new Set(prev).add(pName));
-                  if (pChamp) newChamps[pName] = pChamp;
+                  const idToUse = pUserId || pName;
+                  
+                  if (idToUse !== userId?.toString() && idToUse !== playerName) setKnownPeers(prev => new Set(prev).add(idToUse));
+                  if (pChamp) newChamps[idToUse] = pChamp;
                 });
                 setPeerChampions(prev => ({ ...prev, ...newChamps }));
               }
            } else if (event === 'player_joined') {
               setLogs(l => [...l.slice(-50), `[SERVER] ${data.player_name} joined the room`]);
               playNotificationSound('join');
-              setKnownPeers(prev => new Set(prev).add(data.player_name));
+              const idToUse = data.user_id ? data.user_id.toString() : data.player_name;
+              setKnownPeers(prev => new Set(prev).add(idToUse));
               if (data.champion_name) {
-                  setPeerChampions(prev => ({ ...prev, [data.player_name]: data.champion_name }));
+                  setPeerChampions(prev => ({ ...prev, [idToUse]: data.champion_name }));
               }
            } else if (event === 'player_left') {
               setLogs(l => [...l.slice(-50), `[SERVER] ${data.player_name} left the room`]);
               playNotificationSound('leave');
-              setKnownPeers(prev => { const n = new Set(prev); n.delete(data.player_name); return n; });
+              const idToUse = data.user_id ? data.user_id.toString() : data.player_name;
+              setKnownPeers(prev => { const n = new Set(prev); n.delete(idToUse); return n; });
            } else if (event === 'player_renamed') {
-              setKnownPeers(prev => {
-                  const n = new Set(prev);
-                  n.delete(data.old_name);
-                  n.add(data.new_name);
-                  return n;
-              });
-              setPeerChampions(prev => {
-                  const n = { ...prev };
-                  if (n[data.old_name]) { n[data.new_name] = n[data.old_name]; delete n[data.old_name]; }
-                  return n;
-              });
               setLogs(l => [...l.slice(-50), `[SERVER] ${data.old_name} renamed to ${data.new_name}`]);
+              // With abstract IDs, renaming doesn't affect tracking maps!
            } else if (event === 'player_champion') {
-              setPeerChampions(prev => ({ ...prev, [data.player_name]: data.champion_name }));
+              const abstractId = data.user_id ? data.user_id.toString() : data.player_name;
+              setPeerChampions(prev => ({ ...prev, [abstractId]: data.champion_name }));
            } else if (event === 'player_positions') {
                setServerMapData(data);
            } else if (event === 'room_state') {
                // Full robust sync
                const players = data.players || [];
-               const names = players.map((p: any) => p.name);
-               setKnownPeers(new Set(names.filter((n: string) => n !== playerName)));
+               const ids = players.map((p: any) => p.user_id?.toString() || p.name);
+               setKnownPeers(new Set(ids.filter((id: string) => id !== userId?.toString() && id !== playerName)));
                
                const newChamps: Record<string, string> = {};
                const streamingSids = new Set<string>();
                players.forEach((p: any) => {
-                   if (p.champ) newChamps[p.name] = p.champ;
-                   if (p.is_streaming) streamingSids.add(p.name);
+                   const idToUse = p.user_id?.toString() || p.name;
+                   if (p.champ) newChamps[idToUse] = p.champ;
+                   if (p.is_streaming) streamingSids.add(idToUse);
                });
                setPeerChampions(prev => ({ ...prev, ...newChamps }));
                setStreamingPlayers(streamingSids);
                
                setLogs(l => [...l.slice(-50), `[SERVER] Sync: ${players.length} players in room`]);
            } else if (event === 'stream_frame') {
+               const idToUse = data.user_id ? data.user_id.toString() : data.player_name;
                setCurrentStream(prev => {
-                   if (watchedStreamRef.current === data.player_name) {
+                   if (watchedStreamRef.current === idToUse) {
                        return {
-                           name: data.player_name,
+                           name: data.player_name, // keep string name for UI display
                            frame: data.frame,
                            width: data.width,
                            height: data.height
@@ -577,17 +588,17 @@ function App() {
                    return prev;
                });
            } else if (event === 'stream_status_changed') {
-               // The room_state event now handles this more robustly, but we can still react to immediate changes
+               const idToUse = data.user_id ? data.user_id.toString() : data.player_name;
                if (data.is_streaming) {
-                   setStreamingPlayers(prev => new Set(prev).add(data.player_name));
+                   setStreamingPlayers(prev => new Set(prev).add(idToUse));
                } else {
                    setStreamingPlayers(prev => {
                        const next = new Set(prev);
-                       next.delete(data.player_name);
+                       next.delete(idToUse);
                        return next;
                    });
                    setCurrentStream(prev => prev?.name === data.player_name ? null : prev);
-                   if (watchedStreamRef.current === data.player_name) setWatchedStream(null);
+                   if (watchedStreamRef.current === idToUse) setWatchedStream(null);
                }
            }
         },
@@ -598,7 +609,10 @@ function App() {
              ...prev,
              [roomId]: [...(prev[roomId] || []).slice(-200), msg]
            }));
-        });
+        },
+        authToken || undefined,
+        targetRoom.password || undefined,
+        appVersion || "1.1.2");
         
         // Apply current UI mute/deafen states to the fresh connection
         voiceManagerRef.current.setMicMuted(isMicMuted);
@@ -686,9 +700,9 @@ function App() {
     setRoomContextMenu(null);
   };
 
-  const handleKickPlayer = (targetName: string) => {
+  const handleKickPlayer = (targetId: string) => {
     if (voiceManagerRef.current?.socket) {
-      voiceManagerRef.current.socket.emit("kick_player", { target_name: targetName });
+      voiceManagerRef.current.socket.emit("kick_player", { target_user_id: parseInt(targetId) });
     }
     setContextMenu(null);
   };
@@ -856,6 +870,21 @@ function App() {
                 <form onSubmit={handleAuthSubmit} className="flex flex-col gap-5">
                     {authError && <div className="p-3 bg-red-500/10 border border-red-500/50 rounded text-red-400 text-sm">{authError}</div>}
                     <div>
+                        <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Server IP Address</label>
+                        <input 
+                            type="text" 
+                            name="backendUrl"
+                            value={backendUrl}
+                            onChange={(e) => {
+                                setBackendUrl(e.target.value);
+                                localStorage.setItem('lpc_backendUrl', e.target.value);
+                            }}
+                            className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                            placeholder="http://localhost:8080"
+                            required
+                        />
+                    </div>
+                    <div>
                         <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Username</label>
                         <input 
                             autoFocus
@@ -1019,203 +1048,214 @@ function App() {
                  className="absolute top-4 right-4 text-text-muted hover:text-white"
               ><X size={20} /></button>
               
-              <h2 className="text-2xl font-bold text-white mb-6">User Settings</h2>
+              <h2 className="text-2xl font-bold text-white mb-4">User Settings</h2>
               
+              <div className="flex gap-6 mb-6 border-b border-[#202225]">
+                 <button onClick={() => setSettingsTab('profile')} className={`pb-2 font-semibold text-sm transition-colors ${settingsTab === 'profile' ? 'text-white border-b-2 border-accent' : 'text-[#8e9297] hover:text-[#dcddde]'}`}>Profile</button>
+                 <button onClick={() => setSettingsTab('audio')} className={`pb-2 font-semibold text-sm transition-colors ${settingsTab === 'audio' ? 'text-white border-b-2 border-accent' : 'text-[#8e9297] hover:text-[#dcddde]'}`}>Voice & Audio</button>
+                 <button onClick={() => setSettingsTab('debug')} className={`pb-2 font-semibold text-sm transition-colors ${settingsTab === 'debug' ? 'text-white border-b-2 border-accent' : 'text-[#8e9297] hover:text-[#dcddde]'}`}>System & Debug</button>
+              </div>
+
               <div className="flex flex-col gap-6 flex-1">
-                 <div>
-                    <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Display Name</label>
-                    <input 
-                      type="text" 
-                      value={playerName}
-                      onChange={(e) => setPlayerName(e.target.value)}
-                      className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
-                    />
-                    <p className="text-xs text-text-muted mt-1">This is how others will see you.</p>
-                 </div>
-                 
-                 <div className="pt-4 border-t border-[#202225]">
-                    <h3 className="text-[#dcddde] font-semibold mb-4">Voice & Video Setup</h3>
-                    
-                    <div className="flex flex-col gap-4">
-                        <div>
-                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
-                               <span>Input Device (Microphone)</span>
-                               <span className="text-accent">{Math.round(micVolume * 100)}%</span>
-                            </label>
+                 {settingsTab === 'profile' && (
+                     <div className="flex flex-col gap-4">
+                         <div>
+                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Display Name</label>
                             <input 
-                                type="range" min="0" max="2" step="0.05" value={micVolume}
-                                onChange={(e) => {
-                                    const v = Number(e.target.value);
-                                    setMicVolume(v);
-                                    if (voiceManagerRef.current) voiceManagerRef.current.setMicVolume(v);
-                                }}
-                                className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
+                              type="text" 
+                              value={playerName}
+                              onChange={(e) => setPlayerName(e.target.value)}
+                              className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
                             />
-                            <select 
-                                value={selectedMic}
-                                onChange={e => setSelectedMic(e.target.value)}
+                            <p className="text-xs text-text-muted mt-1">This is how others will see you in LPC channels.</p>
+                         </div>
+                         
+                         <div>
+                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Account ID</label>
+                            <div className="w-full bg-[#202225]/50 border-none text-[#dcddde] px-3 py-2.5 rounded text-[15px] select-all cursor-text font-mono text-sm">
+                               {userId || 'Not Logged In'}
+                            </div>
+                            <p className="text-xs text-text-muted mt-1">Your unique LPC identifier. Used for system routing and admin verification.</p>
+                         </div>
+                     </div>
+                 )}
+                 
+                 {settingsTab === 'audio' && (
+                     <div className="flex flex-col gap-4">
+                         <div>
+                             <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
+                                <span>Input Device (Microphone)</span>
+                                <span className="text-accent">{Math.round(micVolume * 100)}%</span>
+                             </label>
+                             <input 
+                                 type="range" min="0" max="2" step="0.05" value={micVolume}
+                                 onChange={(e) => {
+                                     const v = Number(e.target.value);
+                                     setMicVolume(v);
+                                     if (voiceManagerRef.current) voiceManagerRef.current.setMicVolume(v);
+                                 }}
+                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
+                             />
+                             <select 
+                                 value={selectedMic}
+                                 onChange={e => setSelectedMic(e.target.value)}
+                                 className="w-full bg-[#202225] text-text-normal px-3 py-2.5 rounded text-[14px] outline-none focus:ring-1 focus:ring-accent appearance-none cursor-pointer"
+                             >
+                                <option value="default">System Default</option>
+                                {audioDevices.inputs.map(d => (
+                                    d.deviceId !== 'default' && d.deviceId !== 'communications' && <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone (${d.deviceId.slice(0,5)}...)`}</option>
+                                ))}
+                             </select>
+                         </div>
+                         
+                         {/* Noise Suppression Toggle */}
+                         <div className="flex items-center justify-between py-2 border-t border-[#202225]">
+                             <div>
+                                 <span className="text-sm font-medium text-[#dcddde]">Noise Suppression (RNNoise)</span>
+                                 <p className="text-xs text-text-muted mt-0.5">AI-powered filter that removes keyboard, fan, and background noise.</p>
+                             </div>
+                             <button
+                                 onClick={() => {
+                                     const next = !noiseSuppression;
+                                     setNoiseSuppression(next);
+                                     if (voiceManagerRef.current) {
+                                         voiceManagerRef.current.setNoiseSuppression(next);
+                                         if (isMicTesting) {
+                                             voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
+                                                 voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
+                                             });
+                                         }
+                                     }
+                                 }}
+                                 className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${noiseSuppression ? 'bg-accent' : 'bg-[#4f545c]'}`}
+                             >
+                                 <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${noiseSuppression ? 'translate-x-5' : ''}`} />
+                             </button>
+                         </div>
+                         
+                         <div className="py-2 border-top border-[#202225]">
+                             <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
+                                <span>Voice Activity Threshold</span>
+                                <span className="text-accent">{Math.round(noiseGate * 100)}%</span>
+                             </label>
+                             <input 
+                                 type="range" min="0" max="1" step="0.01" value={noiseGate}
+                                 onChange={(e) => {
+                                     const v = Number(e.target.value);
+                                     setNoiseGate(v);
+                                     if (voiceManagerRef.current) voiceManagerRef.current.setNoiseGate(v);
+                                 }}
+                                 onMouseUp={() => {
+                                     // Optional: restart or sync test dynamically on slider release
+                                     if (isMicTesting && voiceManagerRef.current) {
+                                         voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
+                                             voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
+                                         });
+                                     }
+                                 }}
+                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent"
+                             />
+                             {/* Mic Level Meter */}
+                             <div className="mt-2 relative h-2 bg-[#202225] rounded-full overflow-hidden">
+                                 {/* Green bar = current mic level */}
+                                 <div 
+                                     className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
+                                     style={{ 
+                                         width: `${Math.min(micLevelDisplay * 100 * 10, 100)}%`,
+                                         background: micLevelDisplay * 10 > noiseGate ? '#3ba55d' : '#4f545c'
+                                     }}
+                                 />
+                                 {/* Threshold line */}
+                                 <div 
+                                     className="absolute inset-y-0 w-0.5 bg-[#ed4245]"
+                                     style={{ left: `${Math.min(noiseGate * 100, 100)}%` }}
+                                 />
+                             </div>
+                             <p className="text-xs text-text-muted mt-2 mb-2">Filters out background noise when you stop talking. Red line = threshold, green bar = your mic level.</p>
+                         </div>
+                         <div className="flex gap-2">
+                             <button 
+                                 onClick={toggleMicTest}
+                                 className={`px-4 py-2 w-full text-sm font-medium rounded opacity-90 hover:opacity-100 transition-colors ${isMicTesting ? 'bg-[#ed4245] text-white' : 'bg-[#4f545c] text-white'}`}
+                             >
+                                 {isMicTesting ? "Stop Testing" : "Test Microphone Loopback"}
+                             </button>
+                         </div>
+                         
+                         <div className="pt-4 border-t border-[#202225]">
+                             <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
+                                <span>Output Device (Headphones)</span>
+                                <span className="text-accent">{Math.round(headphoneVolume * 100)}%</span>
+                             </label>
+                             <input 
+                                 type="range" min="0" max="2" step="0.05" value={headphoneVolume}
+                                 onChange={(e) => {
+                                     const v = Number(e.target.value);
+                                     setHeadphoneVolume(v);
+                                     if (voiceManagerRef.current) voiceManagerRef.current.setHeadphoneVolume(v);
+                                 }}
+                                 className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
+                             />
+                             <select 
+                                value={selectedSpeaker}
+                                onChange={e => setSelectedSpeaker(e.target.value)}
                                 className="w-full bg-[#202225] text-text-normal px-3 py-2.5 rounded text-[14px] outline-none focus:ring-1 focus:ring-accent appearance-none cursor-pointer"
-                            >
-                               <option value="default">System Default</option>
-                               {audioDevices.inputs.map(d => (
-                                   d.deviceId !== 'default' && d.deviceId !== 'communications' && <option key={d.deviceId} value={d.deviceId}>{d.label || `Microphone (${d.deviceId.slice(0,5)}...)`}</option>
-                               ))}
-                            </select>
-                        </div>
-                        
-                        {/* Noise Suppression Toggle */}
-                        <div className="flex items-center justify-between py-2">
-                            <div>
-                                <span className="text-sm font-medium text-[#dcddde]">Noise Suppression (RNNoise)</span>
-                                <p className="text-xs text-text-muted mt-0.5">AI-powered filter that removes keyboard, fan, and background noise.</p>
-                            </div>
-                            <button
-                                onClick={() => {
-                                    const next = !noiseSuppression;
-                                    setNoiseSuppression(next);
-                                    if (voiceManagerRef.current) {
-                                        voiceManagerRef.current.setNoiseSuppression(next);
-                                        if (isMicTesting) {
-                                            voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
-                                                voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
-                                            });
-                                        }
-                                    }
-                                }}
-                                className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${noiseSuppression ? 'bg-accent' : 'bg-[#4f545c]'}`}
-                            >
-                                <span className={`absolute top-0.5 left-0.5 w-5 h-5 bg-white rounded-full transition-transform ${noiseSuppression ? 'translate-x-5' : ''}`} />
-                            </button>
-                        </div>
-                        
+                             >
+                                <option value="default">System Default</option>
+                                {audioDevices.outputs.map(d => (
+                                    d.deviceId !== 'default' && d.deviceId !== 'communications' && <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker (${d.deviceId.slice(0,5)}...)`}</option>
+                                ))}
+                             </select>
+                         </div>
+                     </div>
+                 )}
+
+                 {settingsTab === 'debug' && (
+                     <>
+                     <div>
+                        <h3 className="text-[#dcddde] font-semibold mb-4">App Updates</h3>
                         <div>
-                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
-                               <span>Voice Activity Threshold</span>
-                               <span className="text-accent">{Math.round(noiseGate * 100)}%</span>
-                            </label>
-                            <input 
-                                type="range" min="0" max="1" step="0.01" value={noiseGate}
-                                onChange={(e) => {
-                                    const v = Number(e.target.value);
-                                    setNoiseGate(v);
-                                    if (voiceManagerRef.current) voiceManagerRef.current.setNoiseGate(v);
-                                }}
-                                onMouseUp={() => {
-                                    // Optional: restart or sync test dynamically on slider release
-                                    if (isMicTesting && voiceManagerRef.current) {
-                                        voiceManagerRef.current.toggleMicTest(false, "", "").then(() => {
-                                            voiceManagerRef.current?.toggleMicTest(true, selectedMic, selectedSpeaker);
-                                        });
-                                    }
-                                }}
-                                className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent"
-                            />
-                            {/* Mic Level Meter */}
-                            <div className="mt-2 relative h-2 bg-[#202225] rounded-full overflow-hidden">
-                                {/* Green bar = current mic level */}
-                                <div 
-                                    className="absolute inset-y-0 left-0 rounded-full transition-[width] duration-75"
-                                    style={{ 
-                                        width: `${Math.min(micLevelDisplay * 100 * 10, 100)}%`,
-                                        background: micLevelDisplay * 10 > noiseGate ? '#3ba55d' : '#4f545c'
-                                    }}
-                                />
-                                {/* Threshold line */}
-                                <div 
-                                    className="absolute inset-y-0 w-0.5 bg-[#ed4245]"
-                                    style={{ left: `${Math.min(noiseGate * 100, 100)}%` }}
-                                />
-                            </div>
-                            <p className="text-xs text-text-muted mt-2 mb-2">Filters out background noise when you stop talking. Red line = threshold, green bar = your mic level.</p>
-                        </div>
-                        <div className="flex gap-2">
                             <button 
-                                onClick={toggleMicTest}
-                                className={`px-4 py-2 w-full text-sm font-medium rounded opacity-90 hover:opacity-100 transition-colors ${isMicTesting ? 'bg-[#ed4245] text-white' : 'bg-[#4f545c] text-white'}`}
+                                onClick={checkForUpdates}
+                                disabled={isCheckingUpdate}
+                                className="w-full py-2.5 rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-[#5d6269] transition-colors disabled:opacity-50"
                             >
-                                {isMicTesting ? "Stop Testing" : "Test Microphone Loopback"}
+                                {isCheckingUpdate ? "Checking..." : "Check for Updates"}
                             </button>
+                            {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}
+                             <p className="text-xs text-[#8e9297] mt-3">Version {appVersion || "Loading..."}</p>
                         </div>
-                        <div>
-                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block flex justify-between">
-                               <span>Output Device (Headphones)</span>
-                               <span className="text-accent">{Math.round(headphoneVolume * 100)}%</span>
-                            </label>
-                            <input 
-                                type="range" min="0" max="2" step="0.05" value={headphoneVolume}
-                                onChange={(e) => {
-                                    const v = Number(e.target.value);
-                                    setHeadphoneVolume(v);
-                                    if (voiceManagerRef.current) voiceManagerRef.current.setHeadphoneVolume(v);
-                                }}
-                                className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
-                            />
-                            <select 
-                               value={selectedSpeaker}
-                               onChange={e => setSelectedSpeaker(e.target.value)}
-                               className="w-full bg-[#202225] text-text-normal px-3 py-2.5 rounded text-[14px] outline-none focus:ring-1 focus:ring-accent appearance-none cursor-pointer"
-                            >
-                               <option value="default">System Default</option>
-                               {audioDevices.outputs.map(d => (
-                                   d.deviceId !== 'default' && d.deviceId !== 'communications' && <option key={d.deviceId} value={d.deviceId}>{d.label || `Speaker (${d.deviceId.slice(0,5)}...)`}</option>
-                               ))}
-                            </select>
+                     </div>
+                     
+                      <div className="pt-4 border-t border-[#202225]">
+                        <h3 className="text-[#dcddde] font-semibold mb-4">Diagnostics</h3>
+                        <div className="flex flex-col gap-2">
+                             <button 
+                                onClick={toggleCV2Debug}
+                                className={`w-full py-2.5 rounded text-[14px] font-medium transition-colors ${isCV2DebugEnabled ? "bg-[#ed4245] text-white" : "bg-[#4f545c] text-white hover:bg-[#5d6269]"}`}
+                             >
+                                {isCV2DebugEnabled ? "Hide YOLO Debug Video" : "Show YOLO Debug Video"}
+                             </button>
+                             <button 
+                                onClick={triggerManualRescan}
+                                className="w-full py-2.5 rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-[#5d6269] transition-colors"
+                             >
+                                Manual YOLO Rescan
+                             </button>
+                             <p className="text-xs text-text-muted mt-2">Force the sidecar to re-check the live game roster and mini-map anchor points immediately.</p>
                         </div>
-
-                    </div>
-                 </div>
-
-                 <div className="pt-4 border-t border-[#202225]">
-                    <h3 className="text-[#dcddde] font-semibold mb-4">Server Architecture</h3>
-                    <div>
-                        <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Backend URL</label>
-                        <input 
-                          type="text" 
-                          value={backendUrl}
-                          onChange={(e) => setBackendUrl(e.target.value)}
-                          placeholder="http://localhost:8080"
-                          className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
-                        />
-                        <p className="text-xs text-[#ed4245] mt-1 font-medium">Warning: Changing this requires you to reconnect to the voice channel.</p>
-                    </div>
-                 </div>
-
-                 <div className="pt-4 border-t border-[#202225]">
-                    <h3 className="text-[#dcddde] font-semibold mb-4">App Updates</h3>
-                    <div>
-                        <button 
-                            onClick={checkForUpdates}
-                            disabled={isCheckingUpdate}
-                            className="w-full py-2.5 rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-[#5d6269] transition-colors disabled:opacity-50"
-                        >
-                            {isCheckingUpdate ? "Checking..." : "Check for Updates"}
-                        </button>
-                        {updateStatus && <p className="text-xs text-text-muted mt-2">{updateStatus}</p>}
-                         <p className="text-xs text-[#8e9297] mt-3">Version {appVersion || "Loading..."}</p>
-                    </div>
-                 </div>
+                     </div>
+                     </>
+                 )}
                  
-                  <div className="pt-4 border-t border-[#202225]">
-                    <h3 className="text-[#dcddde] font-semibold mb-4">Diagnostics</h3>
-                    <div className="flex flex-col gap-2">
-                         <button 
-                            onClick={toggleCV2Debug}
-                            className={`w-full py-2.5 rounded text-[14px] font-medium transition-colors ${isCV2DebugEnabled ? "bg-[#ed4245] text-white" : "bg-[#4f545c] text-white hover:bg-[#5d6269]"}`}
-                         >
-                            {isCV2DebugEnabled ? "Hide YOLO Debug Video" : "Show YOLO Debug Video"}
-                         </button>
-                         <button 
-                            onClick={triggerManualRescan}
-                            className="w-full py-2.5 rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-[#5d6269] transition-colors"
-                         >
-                            Manual YOLO Rescan
-                         </button>
-                         <p className="text-xs text-text-muted mt-2">Force the sidecar to re-check the live game roster and mini-map anchor points immediately.</p>
-                    </div>
-                 </div>
-                 
-                 <div className="pt-6 mt-auto border-t border-[#202225]">
-                    <button onClick={closeSettings} className="mt-4 w-auto ml-auto px-6 py-2 bg-accent hover:bg-accent-hover text-white rounded font-medium block">
+                 <div className="pt-6 mt-auto border-t border-[#202225] flex justify-between items-center">
+                    <button 
+                       onClick={handleLogout} 
+                       className="mt-4 px-6 py-2 bg-transparent text-[#ed4245] hover:bg-[#ed4245] hover:text-white rounded font-medium block transition-colors border border-[#ed4245]"
+                    >
+                       Log Out
+                    </button>
+                    <button onClick={closeSettings} className="mt-4 w-auto px-6 py-2 bg-accent hover:bg-accent-hover text-white rounded font-medium block">
                        Done
                     </button>
                  </div>
@@ -1306,23 +1346,23 @@ function App() {
                
                {/* Channel Block -> Click to join */}
                <div 
-                 onClick={() => activeRoom !== previewRoom ? handleConnect(previewRoom) : null}
-                 className={`rounded p-2 flex flex-col cursor-pointer transition-colors border-2 ${activeRoom === previewRoom ? 'bg-[#393c43] border-transparent' : 'border-transparent hover:bg-[#34373c]'}`}
+                 onClick={() => activeRoom?.id !== previewRoom.id ? handleConnect(previewRoom) : null}
+                 className={`rounded p-2 flex flex-col cursor-pointer transition-colors border-2 ${activeRoom?.id === previewRoom.id ? 'bg-[#393c43] border-transparent' : 'border-transparent hover:bg-[#34373c]'}`}
                >
                   <div className="flex items-center justify-between">
                      <span className={`font-semibold text-[15px] flex gap-2 items-center 
-                         ${activeRoom === previewRoom ? 'text-white' : 'text-[#8e9297] hover:text-[#dcddde]'}`}
+                         ${activeRoom?.id === previewRoom.id ? 'text-white' : 'text-[#8e9297] hover:text-[#dcddde]'}`}
                      >
                          <Headphones size={18}/> Global Proximity
                      </span>
-                     {activeRoom === previewRoom && (
+                     {activeRoom?.id === previewRoom.id && (
                         <button onClick={(e) => { e.stopPropagation(); handleDisconnect(); }} className="text-[#8e9297] hover:text-[#ed4245]" title="Disconnect">
                            <X size={16} />
                         </button>
                      )}
                   </div>
                   
-                  {activeRoom === previewRoom && isConnected && (
+                  {activeRoom?.id === previewRoom.id && isConnected && (
                       <div className="flex flex-col gap-1 mt-2">
                           {/* Local Player rendered dynamically checking activeSpeakers state */}
                           <div className="ml-6 text-sm text-[#dcddde] flex items-center gap-2 py-1">
@@ -1361,7 +1401,7 @@ function App() {
                   )}
 
                    {/* Show server-reported members when NOT connected */}
-                   {!(activeRoom === previewRoom && isConnected) && previewRoom && roomMembers[previewRoom.id]?.length > 0 && (
+                   {!(activeRoom?.id === previewRoom.id && isConnected) && previewRoom && roomMembers[previewRoom.id]?.length > 0 && (
                        <div className="flex flex-col gap-1 mt-2">
                            {roomMembers[previewRoom.id].map((name: string) => {
                               const offlineChamp = peerChampions[name];
@@ -1420,13 +1460,7 @@ function App() {
               <Monitor size={18} />
               {isStreaming && <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#ed4245] rounded-full border-2 border-[#2f3136]" />}
             </button>
-            <button 
-               onClick={handleLogout}
-               className="p-1.5 text-red-400 hover:bg-red-500/20 hover:text-red-300 rounded transition-colors"
-               title="Log Out"
-            >
-              <LogIn size={18} />
-            </button>
+
             <button 
                onClick={() => setShowSettingsModal(true)}
                className="p-1.5 text-[#b9bbbe] hover:text-[#dcddde] hover:bg-[#34373c] rounded transition-colors"
@@ -1702,9 +1736,12 @@ function App() {
                              <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 bg-accent">
                                 {playerName.substring(0,2)}
                              </div>
-                             <div className="flex flex-col flex-1 truncate">
-                                <span className="text-sm font-medium text-white">{playerName}</span>
-                                <span className="text-[10px] text-[#3ba55c] font-semibold">You{localChampion ? ` (${localChampion})` : ''}</span>
+                             <div className="flex flex-col flex-1 min-w-0">
+                                <div className="text-sm font-medium text-white flex items-center gap-1 truncate">
+                                   <span className="truncate">{playerName}</span> 
+                                   {activeRoom?.host_id === userId && <Crown size={12} className="text-[#faa61a] flex-shrink-0" />}
+                                </div>
+                                <span className="text-[10px] text-[#3ba55c] font-semibold truncate">You{localChampion ? ` (${localChampion})` : ''}</span>
                              </div>
                              {isStreaming && (
                                 <button 
@@ -1716,15 +1753,20 @@ function App() {
                                 </button>
                              )}
                           </div>
-                          {[...knownPeers].filter(p => p !== playerName && p !== localChampion).map(peer => (
+                          {[...knownPeers].filter(p => p !== userId?.toString() && p !== playerName && p !== localChampion).map(peer => {
+                             const uiName = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === peer)?.name || peer;
+                             const crownIcon = activeRoom?.host_id?.toString() === peer ? <Crown size={12} className="text-[#faa61a]" /> : null;
+                             return (
                              <div key={peer} 
                                  className="flex items-center gap-3 bg-[#36393f] p-2 rounded shadow-sm cursor-pointer hover:bg-white/5 transition-colors select-none"
                                  onContextMenu={(e) => handleContextMenu(e, peer)}
                               >
                                  <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 bg-bg-secondary">
-                                    {peerChampions[peer] ? <img src={champImgUrl(peerChampions[peer])} className="w-full h-full object-cover" /> : peer.substring(0,2)}
+                                    {peerChampions[peer] ? <img src={champImgUrl(peerChampions[peer])} className="w-full h-full object-cover" /> : uiName.substring(0,2)}
                                  </div>
-                                <span className="text-sm font-medium text-white flex-1 truncate">{peer}</span>
+                                <span className="text-sm font-medium text-white flex-1 truncate flex items-center gap-1">
+                                    {uiName} {crownIcon}
+                                </span>
                                 {streamingPlayers.has(peer) && (
                                    <button 
                                       onClick={(e) => { e.stopPropagation(); setWatchedStream(watchedStream === peer ? null : peer); }}
@@ -1735,7 +1777,8 @@ function App() {
                                    </button>
                                 )}
                              </div>
-                          ))}
+                             );
+                          })}
                        </div>
                     </div>
                     <div className="text-xs text-[#72767d] italic text-center mt-2">Waiting for game detection...</div>
@@ -1754,7 +1797,7 @@ function App() {
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-[11px] font-bold text-[#b9bbbe] uppercase mb-3 flex justify-between items-center">
-             <span>{contextMenu.peerId} Volume</span>
+             <span>Volume Control</span>
              <span className="text-accent">{Math.round((peerVolumes[contextMenu.peerId] ?? 1.0) * 100)}%</span>
           </div>
           <input 

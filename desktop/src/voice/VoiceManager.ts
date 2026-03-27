@@ -31,6 +31,7 @@ export class VoiceManager {
   // Proximity State Tracker
   public localPlayerName: string = "";
   public localChampionName: string = "";  // Champion name for map position lookup
+  public userId: string | null = null;
   private playerGainNodes: Map<string, GainNode> = new Map();
   private playerFilterNodes: Map<string, BiquadFilterNode> = new Map(); // New: Distance-based filtering
   private peerVolumeOverrides: Map<string, number> = new Map(); // peerId -> volume scalar (0-2)
@@ -56,7 +57,7 @@ export class VoiceManager {
   /** Recalculate ALL gain nodes immediately with current state */
   private recalcAllVolumes() {
       if (!this.audioContext) return;
-      const myId = this.localChampionName || this.localPlayerName;
+      const myId = this.localChampionName || (this.userId ? this.userId.toString() : this.localPlayerName);
       for (const [pName, gainNode] of this.playerGainNodes.entries()) {
           const { volume, filterFreq } = this.computeAudioParams(myId, pName);
           
@@ -241,6 +242,10 @@ export class VoiceManager {
       if (name) this.localChampionName = name;
   }
   
+  public setUserId(id: string | null) {
+      this.userId = id;
+  }
+  
   private onSpeakerActive?: (speakerName: string) => void;
   private onRoomEvent?: (event: string, data: any) => void;
 
@@ -401,18 +406,19 @@ export class VoiceManager {
        if (!this.audioContext || this.audioContext.state !== 'running') return;
        try {
           const uiLabel = data.player_name;
-          const mapNodeId = data.champion_name || data.player_name; // We place audio on the map using their Champ if known
+          const abstractId = data.user_id ? data.user_id.toString() : data.player_name;
+          const mapNodeId = data.champion_name || abstractId; // We place audio on the map using their Champ if known
           
-          if (!mapNodeId || mapNodeId === this.localPlayerName || mapNodeId === this.localChampionName) return;
+          if (!mapNodeId || mapNodeId === this.localPlayerName || mapNodeId === this.localChampionName || (this.userId && mapNodeId === this.userId.toString())) return;
           
           // Track champion mapping and notify React (debounced — only fires on change)
-          if (uiLabel && data.champion_name && this.knownChampions.get(uiLabel) !== data.champion_name) {
-              this.knownChampions.set(uiLabel, data.champion_name);
-              if (this.onRoomEvent) this.onRoomEvent('player_champion', { player_name: uiLabel, champion_name: data.champion_name });
+          if (abstractId && data.champion_name && this.knownChampions.get(abstractId) !== data.champion_name) {
+              this.knownChampions.set(abstractId, data.champion_name);
+              if (this.onRoomEvent) this.onRoomEvent('player_champion', { player_name: uiLabel, champion_name: data.champion_name, user_id: data.user_id });
           }
 
-          if (this.onSpeakerActive && uiLabel) {
-             this.onSpeakerActive(uiLabel);
+          if (this.onSpeakerActive && data.user_id) {
+             this.onSpeakerActive(data.user_id);
           }
           
           // Decode base64 → Float32Array
