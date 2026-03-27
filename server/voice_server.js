@@ -121,6 +121,7 @@ function createRoom(roomCode, roomType = ROOM_TYPE_PROXIMITY, teamOnly = false, 
         teamRosters: {},
         playerRosters: new Map(), // sid -> { blue: [], red: [] }
         createdAt: Date.now() / 1000,
+        emptySince: Date.now() / 1000, // Tracks how long room has been empty
         packetsIn: 0,
         packetsOut: 0,
     };
@@ -131,6 +132,27 @@ function createRoom(roomCode, roomType = ROOM_TYPE_PROXIMITY, teamOnly = false, 
 const rooms = new Map();
 /** @type {Map<string, string>} sid → roomCode */
 const sidToRoom = new Map();
+
+function getRoomsList() {
+    const spaceList = [];
+    for (const [code, room] of rooms) {
+        spaceList.push({
+            code,
+            name: room.roomName,
+            type: room.roomType,
+            team_only: room.teamOnly,
+            dead_chat: room.deadChat,
+            players: room.players.size,
+            player_names: [...room.players.values()].map((p) => p.playerName),
+            players_data: [...room.players.values()].map((p) => ({ name: p.playerName, champ: p.championName })),
+        });
+    }
+    return spaceList;
+}
+
+function broadcastGlobalLobby() {
+    io.to("global_lobby").emit("available_rooms_updated", { rooms: getRoomsList() });
+}
 
 
 const httpServer = http.createServer((req, res) => {
@@ -165,21 +187,8 @@ const httpServer = http.createServer((req, res) => {
     }
 
     if (req.url === "/rooms") {
-        const roomList = [];
-        for (const [code, room] of rooms) {
-            roomList.push({
-                code,
-                name: room.roomName,
-                type: room.roomType,
-                team_only: room.teamOnly,
-                dead_chat: room.deadChat,
-                players: room.players.size,
-                player_names: [...room.players.values()].map((p) => p.playerName),
-                players_data: [...room.players.values()].map((p) => ({ name: p.playerName, champ: p.championName })),
-            });
-        }
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ rooms: roomList }));
+        res.end(JSON.stringify({ rooms: getRoomsList() }));
         return;
     }
 
@@ -243,12 +252,14 @@ async function removePlayer(sid) {
         log(`${player.playerName} left room '${roomCode}' (${room.players.size} remaining)`);
     }
 
-    // Cleanup empty rooms
+    // Cleanup empty rooms logic
     if (room.players.size === 0) {
-        rooms.delete(roomCode);
-        log(`Room '${roomCode}' deleted (empty)`);
+        room.emptySince = Date.now() / 1000;
+        log(`Room '${roomCode}' is now empty (waiting 10 mins before deletion)`);
+        broadcastGlobalLobby();
     } else {
         broadcastRoomState(roomCode);
+        broadcastGlobalLobby(); // Update player counts globally
     }
 }
 
@@ -286,6 +297,32 @@ io.on("connection", (socket) => {
         await removePlayer(socket.id);
     });
 
+    socket.on("join_global_lobby", () => {
+        socket.join("global_lobby");
+        socket.emit("available_rooms_updated", { rooms: getRoomsList() });
+        log(`Client subscribed to global_lobby: ${socket.id}`);
+    });
+
+    socket.on("create_room", (data) => {
+        let roomCode = (data.room_code || "").trim().toUpperCase();
+        let roomType = (data.room_type || ROOM_TYPE_PROXIMITY).toLowerCase();
+        if (!VALID_ROOM_TYPES.has(roomType)) roomType = ROOM_TYPE_PROXIMITY;
+
+        if (!roomCode) {
+            socket.emit("room_error", { message: "Room code cannot be empty" });
+            return;
+        }
+
+        if (!rooms.has(roomCode)) {
+            const teamOnly = data.team_only || false;
+            const deadChat = data.dead_chat !== undefined ? data.dead_chat : true;
+            rooms.set(roomCode, createRoom(roomCode, roomType, teamOnly, deadChat));
+            log(`Room '${roomCode}' explicitly created (type: ${roomType}, empty 10min timer started)`);
+            broadcastGlobalLobby();
+            socket.emit("room_created_success", { room_code: roomCode });
+        }
+    });
+
     socket.on("join_room", async (data) => {
         let roomCode = (data.room_code || "").trim().toUpperCase();
         const playerName = data.player_name || "Unknown";
@@ -316,6 +353,9 @@ io.on("connection", (socket) => {
         }
 
         const room = rooms.get(roomCode);
+        // Clear empty timer
+        room.emptySince = null;
+
         const player = createPlayer(socket.id, playerName, roomCode, team, gamePhase, championName);
         room.players.set(socket.id, player);
         sidToRoom.set(socket.id, roomCode);
@@ -342,6 +382,7 @@ io.on("connection", (socket) => {
 
         log(`${playerName} joined room '${roomCode}' (type: ${room.roomType}, ${room.players.size} players)`);
         broadcastRoomState(roomCode);
+        broadcastGlobalLobby(); // Update global lobby player counts
     });
 
     socket.on("leave_room", async () => {
@@ -371,6 +412,7 @@ io.on("connection", (socket) => {
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
         });
+        broadcastGlobalLobby(); // Update room list for global observers
     });
 
     socket.on("detected_positions", (data) => {
@@ -871,6 +913,21 @@ setInterval(async () => {
     for (const { sid, name } of staleSids) {
         log(`Heartbeat timeout: ${name} (sid: ${sid})`);
         await removePlayer(sid);
+    }
+
+    // Process empty room 10-minute timeout
+    const emptyRoomTimeoutDelete = [];
+    for (const [code, room] of rooms) {
+        if (room.players.size === 0 && room.emptySince && (t - room.emptySince > 600.0)) {
+            emptyRoomTimeoutDelete.push(code);
+        }
+    }
+    if (emptyRoomTimeoutDelete.length > 0) {
+        for (const code of emptyRoomTimeoutDelete) {
+            rooms.delete(code);
+            log(`Room '${code}' deleted (inactive & empty for 10 minutes)`);
+        }
+        broadcastGlobalLobby();
     }
 }, CLEANUP_INTERVAL_S * 1000);
 

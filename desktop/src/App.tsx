@@ -4,6 +4,7 @@ import { Command } from "@tauri-apps/plugin-shell";
 import { check } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
 import { VoiceManager } from "./voice/VoiceManager";
+import { io, Socket } from "socket.io-client";
 
 // Simple oscillator beep for join/leave notifications
 function playNotificationSound(type: 'join' | 'leave') {
@@ -161,56 +162,46 @@ function App() {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [logs]);
 
-  // Poll the backend /rooms endpoint to discover rooms others have created
+  const globalSocketRef = useRef<Socket | null>(null);
+
+  // Global socket for real-time room discovery (replaces HTTP polling)
   useEffect(() => {
-    let cancelled = false;
-    // Ensure the URL has a protocol for fetch() calls
     const normalizedUrl = backendUrl.startsWith('http') ? backendUrl : `http://${backendUrl}`;
-    async function fetchRooms() {
-      try {
-        const res = await fetch(`${normalizedUrl}/rooms`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (cancelled) return;
-        const serverRooms: RoomInfo[] = (data.rooms || []).map((r: any) => ({
-          id: r.code,
-          mode: r.type === 'proximity' ? 'proximity' : (r.team_only ? 'team' : 'global')
-        }));
-        // Merge server rooms into local state (don't remove local rooms)
-        setRooms(prev => {
-          const existing = new Set(prev.map(r => r.id));
-          const merged = [...prev];
-          for (const sr of serverRooms) {
-            if (!existing.has(sr.id)) {
-              merged.push(sr);
-            }
-          }
-          return merged.length !== prev.length ? merged : prev;
-        });
-        // Update room members map and champion data
-        const members: Record<string, string[]> = {};
-        const newChamps: Record<string, string> = {};
-        for (const r of (data.rooms || [])) {
-          members[r.code] = r.player_names || [];
-          // Parse extended player data with champion info
-          for (const p of (r.players_data || [])) {
-            if (p.champ) newChamps[p.name] = p.champ;
-          }
+    const socket = io(normalizedUrl, { reconnection: true });
+    globalSocketRef.current = socket;
+
+    socket.on("connect", () => {
+      socket.emit("join_global_lobby");
+    });
+
+    socket.on("available_rooms_updated", (data: any) => {
+      const serverRooms: RoomInfo[] = (data.rooms || []).map((r: any) => ({
+        id: r.code,
+        mode: r.type === 'proximity' ? 'proximity' : (r.team_only ? 'team' : 'global')
+      }));
+      
+      setRooms(serverRooms);
+
+      const members: Record<string, string[]> = {};
+      const newChamps: Record<string, string> = {};
+      for (const r of (data.rooms || [])) {
+        members[r.code] = r.player_names || [];
+        for (const p of (r.players_data || [])) {
+          if (p.champ) newChamps[p.name] = p.champ;
         }
-        setRoomMembers(members);
-        setPeerChampions(prev => {
-          const merged = { ...prev, ...newChamps };
-          if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
-          return merged;
-        });
-      } catch (e) {
-        // Server might not be up yet or URL is wrong
-        console.debug('[RoomPoll] fetch failed:', e);
       }
-    }
-    fetchRooms();
-    const interval = setInterval(fetchRooms, 1500); // Poll faster (1.5s) for responsive UI
-    return () => { cancelled = true; clearInterval(interval); };
+      setRoomMembers(members);
+      setPeerChampions(prev => {
+        const merged = { ...prev, ...newChamps };
+        if (JSON.stringify(merged) === JSON.stringify(prev)) return prev;
+        return merged;
+      });
+    });
+
+    return () => {
+      socket.disconnect();
+      globalSocketRef.current = null;
+    };
   }, [backendUrl]);
 
   const closeSettings = () => {
@@ -601,12 +592,25 @@ function App() {
       e.preventDefault();
       const cleanRoom = newRoomInput.trim().toUpperCase();
       if (cleanRoom) {
-         if (!rooms.find(r => r.id === cleanRoom)) {
-             const createdRoom: RoomInfo = { id: cleanRoom, mode: newRoomMode };
-             setRooms([...rooms, createdRoom]);
-             setPreviewRoom(createdRoom);
+         if (globalSocketRef.current?.connected) {
+             globalSocketRef.current.emit("create_room", {
+                 room_code: cleanRoom,
+                 room_type: newRoomMode === 'proximity' ? 'proximity' : 'normal',
+                 team_only: newRoomMode === 'team',
+                 dead_chat: newRoomMode === 'proximity'
+             });
+             if (!rooms.find(r => r.id === cleanRoom)) {
+                 setRooms([...rooms, { id: cleanRoom, mode: newRoomMode }]);
+             }
+             setPreviewRoom({ id: cleanRoom, mode: newRoomMode });
          } else {
-             setPreviewRoom(rooms.find(r => r.id === cleanRoom) || null);
+             if (!rooms.find(r => r.id === cleanRoom)) {
+                 const createdRoom: RoomInfo = { id: cleanRoom, mode: newRoomMode };
+                 setRooms([...rooms, createdRoom]);
+                 setPreviewRoom(createdRoom);
+             } else {
+                 setPreviewRoom(rooms.find(r => r.id === cleanRoom) || null);
+             }
          }
       }
       setNewRoomInput("");
