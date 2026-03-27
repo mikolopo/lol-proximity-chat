@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Settings, Mic, Headphones, Monitor, X, Plus, MicOff, LogIn, Send } from "lucide-react";
+import { Settings, Mic, Headphones, Monitor, X, Plus, MicOff, LogIn, Send, Crown, Trash2, Lock, Unlock } from "lucide-react";
 import { Command } from "@tauri-apps/plugin-shell";
 import { check } from "@tauri-apps/plugin-updater";
 import { getVersion } from "@tauri-apps/api/app";
@@ -34,7 +34,14 @@ function playNotificationSound(type: 'join' | 'leave') {
 }
 
 function App() {
-  type RoomInfo = {id: string, mode: 'global' | 'team' | 'proximity'};
+  type RoomInfo = { 
+    id: string, 
+    mode: 'global' | 'team' | 'proximity',
+    host_id?: number,
+    is_locked?: boolean,
+    has_password?: boolean,
+    players_data?: { name: string, champ: string, user_id: number }[]
+  };
   const [rooms, setRooms] = useState<RoomInfo[]>([]);
   const [activeRoom, setActiveRoom] = useState<RoomInfo | null>(null); // The room we are connected to
   const [previewRoom, setPreviewRoom] = useState<RoomInfo | null>(null); // The room we are currently looking at
@@ -118,6 +125,17 @@ function App() {
   const micLevelInterval = useRef<any>(null);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, peerId: string } | null>(null);
+  
+  // Room Admin State
+  const [roomContextMenu, setRoomContextMenu] = useState<{ x: number, y: number, roomCode: string, isLocked: boolean, hasPassword: boolean } | null>(null);
+  const [showPasswordSetup, setShowPasswordSetup] = useState<{ roomCode: string } | null>(null);
+  const [newRoomPassword, setNewRoomPassword] = useState("");
+
+  // Auth state
+  const [userId] = useState<number | null>(() => {
+    const saved = localStorage.getItem("userId");
+    return saved ? parseInt(saved) : null;
+  });
 
   // Stream watching state
   const watchedStreamRef = useRef<string | null>(null);
@@ -177,7 +195,11 @@ function App() {
     socket.on("available_rooms_updated", (data: any) => {
       const serverRooms: RoomInfo[] = (data.rooms || []).map((r: any) => ({
         id: r.code,
-        mode: r.type === 'proximity' ? 'proximity' : (r.team_only ? 'team' : 'global')
+        mode: r.type === 'proximity' ? 'proximity' : (r.team_only ? 'team' : 'global'),
+        host_id: r.host_id,
+        is_locked: r.is_locked,
+        has_password: r.has_password,
+        players_data: r.players_data
       }));
       
       setRooms(serverRooms);
@@ -586,6 +608,45 @@ function App() {
     setCurrentStream(null);
     setWatchedStream(null);
     setLogs(l => [...l.slice(-50), "[UI] Disconnected from Voice Room."]);
+  };
+
+  const handleRoomContextMenu = (e: React.MouseEvent, room: RoomInfo) => {
+    e.preventDefault();
+    if (room.host_id === userId) {
+      setRoomContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        roomCode: room.id,
+        isLocked: !!room.is_locked,
+        hasPassword: !!room.has_password
+      });
+    }
+  };
+
+  const handleToggleLock = (targetRoomId: string, isLocked: boolean) => {
+    if (activeRoom?.id === targetRoomId && voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("update_room_security", { is_locked: !isLocked });
+    }
+    setRoomContextMenu(null);
+  };
+
+  const handleRemovePassword = (targetRoomId: string) => {
+    if (activeRoom?.id === targetRoomId && voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("update_room_security", { password: "" });
+    }
+    setRoomContextMenu(null);
+  };
+
+  const handleDeleteRoom = (targetRoomId: string) => {
+    globalSocketRef.current?.emit("delete_room", { room_code: targetRoomId });
+    setRoomContextMenu(null);
+  };
+
+  const handleKickPlayer = (targetName: string) => {
+    if (voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("kick_player", { target_name: targetName });
+    }
+    setContextMenu(null);
   };
 
   const submitAddRoom = (e: React.FormEvent) => {
@@ -1081,11 +1142,13 @@ function App() {
               
               <div 
                 onClick={() => setPreviewRoom(room)}
-                className={`w-12 h-12 transition-all duration-200 flex items-center justify-center cursor-pointer text-white font-bold text-lg
+                onContextMenu={(e) => handleRoomContextMenu(e, room)}
+                className={`w-12 h-12 transition-all duration-200 flex items-center justify-center cursor-pointer text-white font-bold text-lg relative
                   ${isPreviewingHere || isConnectedHere ? 'rounded-[16px] bg-accent' : 'rounded-[24px] bg-bg-secondary hover:rounded-[16px] hover:bg-accent'}
                 `}
               >
                 {room.id.substring(0,2)}
+                {room.is_locked && <Lock size={12} className="absolute -bottom-1 -right-1 text-[#ed4245] bg-[#292b2f] rounded-full p-0.5" />}
               </div>
               
               {/* Tooltip */}
@@ -1152,8 +1215,11 @@ function App() {
                             <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-accent'}`}>
                                {localChampion ? <img src={champImgUrl(localChampion)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.textContent = playerName.substring(0,2); }} /> : playerName.substring(0,2)}
                             </div>
-                            <span className={`font-medium ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'text-[#3ba55c]' : ''}`}>{playerName} <span className="text-xs font-normal text-[#8e9297] opacity-60 ml-1">(You)</span></span>
-                            {(isMicMuted || isDeafened) && <MicOff size={14} className="text-[#ed4245] ml-auto mr-1" />}
+                            <span className={`font-medium min-w-0 truncate ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'text-[#3ba55c]' : ''}`}>{playerName} <span className="text-xs font-normal text-[#8e9297] opacity-60 ml-1">(You)</span></span>
+                            {activeRoom?.host_id === userId && (
+                              <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />
+                            )}
+                            {(isMicMuted || isDeafened) && <MicOff size={14} className="text-[#ed4245] ml-2 mr-1" />}
                           </div>
                           
                           {/* Remote Peers rendered underneath, glowing green if activeSpeakers has them */}
@@ -1161,6 +1227,7 @@ function App() {
                              if (peer === playerName) return null;
                              const isSpeaking = activeSpeakers.has(peer);
                              const peerChamp = peerChampions[peer];
+                             const peerData = activeRoom?.players_data?.find((pd: any) => pd.name === peer);
                              return (
                                 <div key={peer} 
                                     className="ml-6 text-sm text-[#dcddde] flex items-center gap-2 py-1 cursor-pointer hover:bg-white/5 rounded px-1 -ml-1 transition-colors select-none"
@@ -1169,8 +1236,11 @@ function App() {
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${isSpeaking ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-[#1e1f22]'}`}>
                                         {peerChamp ? <img src={champImgUrl(peerChamp)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.textContent = peer.substring(0,2); }} /> : peer.substring(0,2)}
                                     </div>
-                                    <span className={`font-medium ${isSpeaking ? 'text-[#3ba55c]' : ''}`}>{peer}</span>
-                                </div>
+                                    <span className={`font-medium min-w-0 truncate ${isSpeaking ? 'text-[#3ba55c]' : ''}`}>{peer}</span>
+                                    {activeRoom?.host_id === peerData?.user_id && (
+                                      <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />
+                                    )}
+                                 </div>
                              )
                           })}
                       </div>
@@ -1181,12 +1251,16 @@ function App() {
                        <div className="flex flex-col gap-1 mt-2">
                            {roomMembers[previewRoom.id].map((name: string) => {
                               const offlineChamp = peerChampions[name];
+                              const pd = previewRoom.players_data?.find((p: any) => p.name === name);
                               return (
                               <div key={name} className="ml-6 text-sm text-[#8e9297] flex items-center gap-2 py-1">
                                  <div className="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white bg-[#1e1f22] flex-shrink-0 overflow-hidden">
                                     {offlineChamp ? <img src={champImgUrl(offlineChamp)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.textContent = name.substring(0,2); }} /> : name.substring(0,2)}
                                  </div>
-                                 <span className="font-medium">{name}</span>
+                                 <span className="font-medium min-w-0 truncate">{name}</span>
+                                 {previewRoom.host_id === pd?.user_id && (
+                                   <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />
+                                 )}
                               </div>
                               );
                            })}
@@ -1550,11 +1624,12 @@ function App() {
           </div>
       )}
 
-      {/* CONTEXT MENU */}
+      {/* PEER CONTEXT MENU */}
       {contextMenu && (
         <div 
           className="fixed bg-[#18191c] border border-[#202225] rounded shadow-2xl p-3 z-[100] w-48 animate-in fade-in zoom-in duration-100"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
+          style={{ left: Math.min(contextMenu.x, window.innerWidth - 200), top: Math.min(contextMenu.y, window.innerHeight - 150) }}
+          onMouseLeave={() => setContextMenu(null)}
           onClick={(e) => e.stopPropagation()}
         >
           <div className="text-[11px] font-bold text-[#b9bbbe] uppercase mb-3 flex justify-between items-center">
@@ -1569,10 +1644,112 @@ function App() {
           />
           <button 
              onClick={() => updatePeerVolume(contextMenu.peerId, 1.0)}
-             className="w-full py-1 text-[10px] bg-[#4f545c] text-white rounded hover:bg-[#5d6269] transition-colors"
+             className="w-full py-1 text-[10px] bg-[#4f545c] text-white rounded hover:bg-[#5d6269] transition-colors mb-2"
           >
              Reset to 100%
           </button>
+          {activeRoom?.host_id === userId && (
+            <>
+              <div className="h-[1px] bg-[#2b2d31] my-2" />
+              <button 
+                onClick={() => handleKickPlayer(contextMenu.peerId)}
+                className="w-full py-1.5 text-xs bg-transparent hover:bg-[#ed4245] text-[#ed4245] hover:text-white rounded transition-colors"
+                title="Only visible to room host"
+              >
+                Kick from Channel
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ROOM CONTEXT MENU */}
+      {roomContextMenu && (
+        <div 
+          className="fixed bg-[#18191c] border border-[#202225] rounded shadow-2xl p-2 z-[100] w-48 custom-context-menu"
+          style={{ left: Math.min(roomContextMenu.x, window.innerWidth - 200), top: Math.min(roomContextMenu.y, window.innerHeight - 150) }}
+          onMouseLeave={() => setRoomContextMenu(null)}
+        >
+          <div className="px-3 py-1 font-bold text-white border-b border-[#202225] mb-1 truncate">{roomContextMenu.roomCode} Admin</div>
+          
+          {activeRoom?.id === roomContextMenu.roomCode ? (
+            <>
+              <div 
+                onClick={() => handleToggleLock(roomContextMenu.roomCode, roomContextMenu.isLocked)}
+                className="px-3 py-1.5 text-sm text-[#dcddde] hover:bg-accent hover:text-white cursor-pointer rounded transition-colors flex justify-between items-center"
+              >
+                <span>{roomContextMenu.isLocked ? 'Unlock Channel' : 'Lock Channel'}</span>
+                {roomContextMenu.isLocked ? <Unlock size={14} /> : <Lock size={14} />}
+              </div>
+              <div 
+                onClick={() => roomContextMenu.hasPassword ? handleRemovePassword(roomContextMenu.roomCode) : setShowPasswordSetup({ roomCode: roomContextMenu.roomCode })}
+                className="px-3 py-1.5 text-sm text-[#dcddde] hover:bg-accent hover:text-white cursor-pointer rounded transition-colors"
+              >
+                <span>{roomContextMenu.hasPassword ? 'Remove Password' : 'Set Password'}</span>
+              </div>
+            </>
+          ) : (
+            <div className="px-3 py-1.5 text-xs text-[#8e9297] italic">Connect to this channel to change security settings.</div>
+          )}
+
+          <div className="h-[1px] bg-[#2b2d31] my-1 mx-2" />
+          <div 
+            onClick={() => handleDeleteRoom(roomContextMenu.roomCode)}
+            className="px-3 py-1.5 text-sm text-[#ed4245] hover:bg-[#ed4245] hover:text-white cursor-pointer rounded transition-colors flex justify-between items-center"
+          >
+            <span>Delete Channel</span>
+            <Trash2 size={14} />
+          </div>
+        </div>
+      )}
+
+      {/* PASSWORD SETUP MODAL */}
+      {showPasswordSetup && (
+        <div className="fixed inset-0 bg-black/70 z-[110] flex items-center justify-center p-4">
+          <div className="bg-[#36393f] w-full max-w-sm rounded-lg shadow-2xl p-6 relative">
+            <h2 className="text-xl font-bold text-white mb-2">Set Room Password</h2>
+            <p className="text-sm text-[#dcddde] mb-4">Require a password for new users joining <strong>{showPasswordSetup.roomCode}</strong>.</p>
+            <input 
+              type="password" 
+              autoFocus
+              value={newRoomPassword}
+              onChange={(e) => setNewRoomPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && newRoomPassword.trim()) {
+                  if (voiceManagerRef.current?.socket) {
+                    voiceManagerRef.current.socket.emit("update_room_security", { password: newRoomPassword.trim() });
+                  }
+                  setShowPasswordSetup(null);
+                  setNewRoomPassword("");
+                  setRoomContextMenu(null);
+                }
+              }}
+              className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent mb-4 text-white"
+              placeholder="Secret Password"
+            />
+            <div className="flex gap-3 justify-end mt-2">
+              <button 
+                onClick={() => { setShowPasswordSetup(null); setNewRoomPassword(""); setRoomContextMenu(null); }}
+                className="px-4 py-2 hover:underline text-[#dcddde]"
+              >
+                Cancel
+              </button>
+              <button 
+                disabled={!newRoomPassword.trim()}
+                onClick={() => {
+                  if (voiceManagerRef.current?.socket) {
+                    voiceManagerRef.current.socket.emit("update_room_security", { password: newRoomPassword.trim() });
+                  }
+                  setShowPasswordSetup(null);
+                  setNewRoomPassword("");
+                  setRoomContextMenu(null);
+                }}
+                className="px-6 py-2 bg-accent hover:bg-accent-hover text-white rounded font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Set Password
+              </button>
+            </div>
+          </div>
         </div>
       )}
 

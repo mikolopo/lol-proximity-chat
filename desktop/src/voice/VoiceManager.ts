@@ -255,7 +255,10 @@ export class VoiceManager {
     onAudioData: (base64Chunk: string) => void,
     onSpeakerActive?: (speakerName: string) => void,
     onRoomEvent?: (event: string, data: any) => void,
-    onChatMessage?: (msg: {sender: string, message: string, timestamp: number}) => void
+    onChatMessage?: (msg: {sender: string, message: string, timestamp: number}) => void,
+    token?: string,
+    password?: string,
+    version?: string
   ) {
     this.localPlayerName = playerName;
     this.isProximityMode = isProximity;
@@ -265,7 +268,9 @@ export class VoiceManager {
     this.onRoomEvent = onRoomEvent;
     this.currentRoomCode = roomCode;
     
-    this.socket = io(this.url);
+    this.socket = io(this.url, {
+        auth: { token, version }
+    });
 
     this.socket.on("connect", () => {
       console.log(`Connected to voice server: ${this.url}`);
@@ -275,7 +280,8 @@ export class VoiceManager {
         champion_name: this.localChampionName,
         room_type: isProximity ? "proximity" : "normal",
         team_only: teamOnly,
-        dead_chat: deadChat
+        dead_chat: deadChat,
+        password: password
       });
 
       // Start periodic heartbeat and sync-check once connected
@@ -309,6 +315,20 @@ export class VoiceManager {
       this.lastRoomJoinedTs = Date.now();
       
       if (onRoomEvent) onRoomEvent('room_joined', data);
+    });
+    
+    this.socket.on("room_error", (data: any) => {
+        if (onRoomEvent) onRoomEvent("room_error", data);
+    });
+
+    this.socket.on("connect_error", (err) => {
+        console.error("Socket connect_error:", err.message);
+        if (onRoomEvent) onRoomEvent("connect_error", { message: err.message });
+    });
+
+    this.socket.on("kicked_from_room", () => {
+        if (onRoomEvent) onRoomEvent("kicked_from_room", {});
+        this.socket?.disconnect();
     });
     
     this.socket.on("room_settings_updated", (data: any) => {

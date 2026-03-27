@@ -478,6 +478,33 @@ io.on("connection", (socket) => {
         await removePlayer(socket.id);
     });
 
+    socket.on("delete_room", async (data) => {
+        const roomCode = (data.room_code || "").trim().toUpperCase();
+        if (!roomCode) return;
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        if (room.hostId !== socket.userId) {
+            socket.emit("room_error", { message: "Only the room host can delete a room." });
+            return;
+        }
+
+        // Kick all players from the room
+        for (const [sid, player] of room.players) {
+            const playerSocket = io.sockets.sockets.get(sid);
+            if (playerSocket) {
+                playerSocket.emit("kicked_from_room");
+                playerSocket.leave(roomCode);
+            }
+            sidToRoom.delete(sid);
+        }
+        room.players.clear();
+
+        // Destroy the room
+        rooms.delete(roomCode);
+        log(`Room '${roomCode}' permanently deleted by host ${socket.username}`);
+        broadcastGlobalLobby();
+    });
+
     socket.on("update_room_security", (data) => {
         const roomCode = sidToRoom.get(socket.id);
         if (!roomCode) return;
