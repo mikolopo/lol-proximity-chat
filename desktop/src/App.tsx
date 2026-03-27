@@ -132,10 +132,54 @@ function App() {
   const [newRoomPassword, setNewRoomPassword] = useState("");
 
   // Auth state
-  const [userId] = useState<number | null>(() => {
+  const [authToken, setAuthToken] = useState<string | null>(() => localStorage.getItem("token"));
+  const [userId, setUserId] = useState<number | null>(() => {
     const saved = localStorage.getItem("userId");
     return saved ? parseInt(saved) : null;
   });
+  
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  const [authUsername, setAuthUsername] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  const handleAuthSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setAuthError("");
+      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
+      try {
+          const res = await fetch(`http://${backendUrl.replace('http://', '').replace(/:\d+$/, '')}:8080${endpoint}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ username: authUsername, password: authPassword, version: appVersion })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Authentication failed');
+          
+          localStorage.setItem("token", data.token);
+          if (data.userId) localStorage.setItem("userId", data.userId.toString());
+          localStorage.setItem("lpc_playerName", data.username);
+          setAuthToken(data.token);
+          setUserId(data.userId);
+          setPlayerName(data.username);
+      } catch (err: any) {
+          setAuthError(err.message);
+      }
+  };
+
+  const handleLogout = () => {
+      localStorage.removeItem("token");
+      localStorage.removeItem("userId");
+      localStorage.removeItem("lpc_playerName");
+      setAuthToken(null);
+      setUserId(null);
+      setPlayerName("Player" + Math.floor(Math.random() * 1000));
+      if (globalSocketRef.current) globalSocketRef.current.disconnect();
+      if (voiceManagerRef.current) voiceManagerRef.current.disconnect();
+      setRooms([]);
+      setActiveRoom(null);
+      setPreviewRoom(null);
+  };
 
   // Stream watching state
   const watchedStreamRef = useRef<string | null>(null);
@@ -794,6 +838,76 @@ function App() {
       }
   };
 
+  if (!authToken) {
+      return (
+        <div className="flex items-center justify-center min-h-screen bg-[#36393f] relative overflow-hidden">
+            <div className="absolute top-0 right-0 p-4 pt-12 text-[#4f545c] select-none opacity-20 transform rotate-12 -z-0">
+               <svg width="600" height="600" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14.5v-9l6 4.5-6 4.5z"/></svg>
+            </div>
+            <div className="bg-[#2f3136] p-8 rounded-lg shadow-xl w-full max-w-md relative z-10 border border-[#202225]">
+                <div className="flex flex-col items-center mb-8">
+                    <div className="w-16 h-16 bg-accent rounded-[24px] flex items-center justify-center mb-4 shadow-lg">
+                       <Headphones size={32} className="text-white" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white tracking-wide">Welcome to LPC</h2>
+                    <p className="text-sm text-[#8e9297] mt-1 font-medium">Log in or create a new proxy identity</p>
+                </div>
+                
+                <form onSubmit={handleAuthSubmit} className="flex flex-col gap-5">
+                    {authError && <div className="p-3 bg-red-500/10 border border-red-500/50 rounded text-red-400 text-sm">{authError}</div>}
+                    <div>
+                        <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Username</label>
+                        <input 
+                            autoFocus
+                            type="text" 
+                            name="username"
+                            autoComplete="username"
+                            value={authUsername}
+                            onChange={(e) => setAuthUsername(e.target.value)}
+                            className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                            placeholder="Summoner Name"
+                            required
+                        />
+                    </div>
+                    <div>
+                        <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 flex justify-between tracking-wider">
+                           <span>Password</span>
+                        </label>
+                        <input 
+                            type="password"
+                            name="password"
+                            autoComplete="current-password"
+                            value={authPassword}
+                            onChange={(e) => setAuthPassword(e.target.value)}
+                            className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                            required
+                        />
+                    </div>
+                    <button 
+                        type="submit" 
+                        disabled={!authUsername.trim() || !authPassword}
+                        className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white rounded font-medium mt-2 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                    >
+                        {authMode === 'login' ? <LogIn size={18} /> : <Plus size={18} />}
+                        {authMode === 'login' ? 'Login' : 'Register'}
+                    </button>
+                    
+                    <div className="text-sm text-[#8e9297] mt-2 group cursor-pointer text-center select-none" onClick={() => { setAuthMode(authMode === 'login' ? 'register' : 'login'); setAuthError(''); }}>
+                        {authMode === 'login' ? 'Need an account? ' : 'Already have an account? '}
+                        <span className="text-accent group-hover:underline">
+                            {authMode === 'login' ? 'Register' : 'Login'}
+                        </span>
+                    </div>
+                </form>
+
+                <div className="mt-8 text-center text-xs text-[#4f545c]">
+                   LoL Proximity Chat version {appVersion || "dev"}
+                </div>
+            </div>
+        </div>
+      );
+  }
+
   return (
     <div 
         className="flex h-screen w-full bg-bg-tertiary text-text-normal overflow-hidden font-sans relative"
@@ -1305,6 +1419,13 @@ function App() {
             >
               <Monitor size={18} />
               {isStreaming && <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#ed4245] rounded-full border-2 border-[#2f3136]" />}
+            </button>
+            <button 
+               onClick={handleLogout}
+               className="p-1.5 text-red-400 hover:bg-red-500/20 hover:text-red-300 rounded transition-colors"
+               title="Log Out"
+            >
+              <LogIn size={18} />
             </button>
             <button 
                onClick={() => setShowSettingsModal(true)}
