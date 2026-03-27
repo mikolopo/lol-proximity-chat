@@ -127,6 +127,7 @@ function App() {
   const micLevelInterval = useRef<any>(null);
 
   const [contextMenu, setContextMenu] = useState<{ x: number, y: number, peerId: string } | null>(null);
+  const [profilePopup, setProfilePopup] = useState<{ x: number, y: number, peerId: string } | null>(null);
   
   // Room Admin State
   const [roomContextMenu, setRoomContextMenu] = useState<{ x: number, y: number, roomCode: string, isLocked: boolean, hasPassword: boolean } | null>(null);
@@ -531,7 +532,7 @@ function App() {
                   const pChamp = typeof p === 'object' ? p.champ : '';
                   const idToUse = pUserId || pName;
                   
-                  if (idToUse !== userId?.toString() && idToUse !== playerName) setKnownPeers(prev => new Set(prev).add(idToUse));
+                  if (idToUse !== userId) setKnownPeers(prev => new Set(prev).add(idToUse));
                   if (pChamp) newChamps[idToUse] = pChamp;
                 });
                 setPeerChampions(prev => ({ ...prev, ...newChamps }));
@@ -561,7 +562,7 @@ function App() {
                // Full robust sync
                const players = data.players || [];
                const ids = players.map((p: any) => p.user_id?.toString() || p.name);
-               setKnownPeers(new Set(ids.filter((id: string) => id !== userId?.toString() && id !== playerName)));
+               setKnownPeers(new Set(ids.filter((id: string) => id !== userId)));
                
                const newChamps: Record<string, string> = {};
                const streamingSids = new Set<string>();
@@ -894,7 +895,7 @@ function App() {
                             value={authUsername}
                             onChange={(e) => setAuthUsername(e.target.value)}
                             className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
-                            placeholder="Summoner Name"
+                            placeholder="Username"
                             required
                         />
                     </div>
@@ -940,7 +941,7 @@ function App() {
   return (
     <div 
         className="flex h-screen w-full bg-bg-tertiary text-text-normal overflow-hidden font-sans relative"
-        onClick={() => contextMenu && setContextMenu(null)}
+        onClick={() => { if (contextMenu) setContextMenu(null); if (profilePopup) setProfilePopup(null); }}
     >
       
       {/* STREAM SOURCE PICKER MODAL */}
@@ -1365,7 +1366,10 @@ function App() {
                   {activeRoom?.id === previewRoom.id && isConnected && (
                       <div className="flex flex-col gap-1 mt-2">
                           {/* Local Player rendered dynamically checking activeSpeakers state */}
-                          <div className="ml-6 text-sm text-[#dcddde] flex items-center gap-2 py-1">
+                          <div 
+                            className="ml-6 text-sm text-[#dcddde] flex items-center gap-2 py-1 cursor-pointer hover:bg-white/5 rounded px-1 -ml-1 transition-colors select-none"
+                            onClick={(e) => { e.stopPropagation(); if (userId) setProfilePopup({ x: e.clientX, y: e.clientY, peerId: userId }); }}
+                          >
                             <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-accent'}`}>
                                {localChampion ? <img src={champImgUrl(localChampion)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.textContent = playerName.substring(0,2); }} /> : playerName.substring(0,2)}
                             </div>
@@ -1385,6 +1389,7 @@ function App() {
                              return (
                                 <div key={peer} 
                                     className="ml-6 text-sm text-[#dcddde] flex items-center gap-2 py-1 cursor-pointer hover:bg-white/5 rounded px-1 -ml-1 transition-colors select-none"
+                                    onClick={(e) => { e.stopPropagation(); setProfilePopup({ x: e.clientX, y: e.clientY, peerId: peer }); }}
                                     onContextMenu={(e) => handleContextMenu(e, peer)}
                                  >
                                     <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${isSpeaking ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-[#1e1f22]'}`}>
@@ -1400,26 +1405,6 @@ function App() {
                       </div>
                   )}
 
-                   {/* Show server-reported members when NOT connected */}
-                   {!(activeRoom?.id === previewRoom.id && isConnected) && previewRoom && roomMembers[previewRoom.id]?.length > 0 && (
-                       <div className="flex flex-col gap-1 mt-2">
-                           {roomMembers[previewRoom.id].map((name: string) => {
-                              const offlineChamp = peerChampions[name];
-                              const pd = previewRoom.players_data?.find((p: any) => p.name === name);
-                              return (
-                              <div key={name} className="ml-6 text-sm text-[#8e9297] flex items-center gap-2 py-1">
-                                 <div className="w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white bg-[#1e1f22] flex-shrink-0 overflow-hidden">
-                                    {offlineChamp ? <img src={champImgUrl(offlineChamp)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.textContent = name.substring(0,2); }} /> : name.substring(0,2)}
-                                 </div>
-                                 <span className="font-medium min-w-0 truncate">{name}</span>
-                                 {previewRoom.host_id === pd?.user_id && (
-                                   <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />
-                                 )}
-                              </div>
-                              );
-                           })}
-                       </div>
-                   )}
                </div>
              </div>
           )}
@@ -1732,7 +1717,10 @@ function App() {
                     <div className="mb-4">
                        <h4 className="text-xs font-bold uppercase mb-2 text-[#b9bbbe]">Connected Players</h4>
                        <div className="flex flex-col gap-2">
-                          <div className="flex items-center gap-3 bg-[#36393f] p-2 rounded shadow-sm">
+                          <div 
+                             className="flex items-center gap-3 bg-[#36393f] p-2 rounded shadow-sm cursor-pointer hover:bg-white/5 transition-colors select-none"
+                             onClick={(e) => { e.stopPropagation(); if (userId) setProfilePopup({ x: e.clientX, y: e.clientY, peerId: userId }); }}
+                          >
                              <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 bg-accent">
                                 {playerName.substring(0,2)}
                              </div>
@@ -1753,15 +1741,16 @@ function App() {
                                 </button>
                              )}
                           </div>
-                          {[...knownPeers].filter(p => p !== userId?.toString() && p !== playerName && p !== localChampion).map(peer => {
+                          {[...knownPeers].filter(p => p !== userId).map(peer => {
                              const uiName = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === peer)?.name || peer;
                              const crownIcon = activeRoom?.host_id?.toString() === peer ? <Crown size={12} className="text-[#faa61a]" /> : null;
                              return (
                              <div key={peer} 
                                  className="flex items-center gap-3 bg-[#36393f] p-2 rounded shadow-sm cursor-pointer hover:bg-white/5 transition-colors select-none"
+                                 onClick={(e) => { e.stopPropagation(); setProfilePopup({ x: e.clientX, y: e.clientY, peerId: peer }); }}
                                  onContextMenu={(e) => handleContextMenu(e, peer)}
                               >
-                                 <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 bg-bg-secondary">
+                                 <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 bg-bg-secondary overflow-hidden">
                                     {peerChampions[peer] ? <img src={champImgUrl(peerChampions[peer])} className="w-full h-full object-cover" /> : uiName.substring(0,2)}
                                  </div>
                                 <span className="text-sm font-medium text-white flex-1 truncate flex items-center gap-1">
@@ -1800,22 +1789,32 @@ function App() {
              <span>Volume Control</span>
              <span className="text-accent">{Math.round((peerVolumes[contextMenu.peerId] ?? 1.0) * 100)}%</span>
           </div>
-          <input 
-             type="range" min="0" max="2" step="0.05" 
+          <input
+             type="range" min="0" max="2" step="0.05"
              value={peerVolumes[contextMenu.peerId] ?? 1.0}
              onChange={(e) => updatePeerVolume(contextMenu.peerId, Number(e.target.value))}
              className="w-full h-1.5 bg-[#202225] rounded-lg appearance-none cursor-pointer accent-accent mb-2"
           />
-          <button 
+          <button
              onClick={() => updatePeerVolume(contextMenu.peerId, 1.0)}
              className="w-full py-1 text-[10px] bg-[#4f545c] text-white rounded hover:bg-[#5d6269] transition-colors mb-2"
-          >
-             Reset to 100%
-          </button>
+           >
+              Reset to 100%
+           </button>
+           <div className="h-[1px] bg-[#2b2d31] my-2" />
+           <button
+              onClick={() => {
+                 setProfilePopup({ x: contextMenu.x, y: contextMenu.y, peerId: contextMenu.peerId });
+                 setContextMenu(null);
+              }}
+              className="w-full py-1.5 text-xs bg-transparent hover:bg-accent/20 text-accent rounded transition-colors"
+           >
+              View Profile
+           </button>
           {activeRoom?.host_id === userId && (
             <>
               <div className="h-[1px] bg-[#2b2d31] my-2" />
-              <button 
+              <button
                 onClick={() => handleKickPlayer(contextMenu.peerId)}
                 className="w-full py-1.5 text-xs bg-transparent hover:bg-[#ed4245] text-[#ed4245] hover:text-white rounded transition-colors"
                 title="Only visible to room host"
@@ -1826,6 +1825,71 @@ function App() {
           )}
         </div>
       )}
+
+      {/* PLAYER PROFILE POPUP */}
+      {profilePopup && (() => {
+         const profPeer = profilePopup.peerId;
+         const profData = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === profPeer);
+         const profName = profData?.name || profPeer;
+         const profChamp = peerChampions[profPeer] || profData?.champ || '';
+         const isHost = activeRoom?.host_id?.toString() === profPeer;
+         return (
+           <div 
+             className="fixed bg-[#232428] border border-[#1e1f22] rounded-lg shadow-2xl z-[100] w-64 animate-in fade-in zoom-in duration-100 overflow-hidden"
+             style={{ left: Math.min(profilePopup.x, window.innerWidth - 280), top: Math.min(profilePopup.y, window.innerHeight - 300) }}
+             onClick={(e) => e.stopPropagation()}
+           >
+              {/* Banner */}
+              <div className="h-16 bg-gradient-to-r from-accent/60 to-[#5865f2]/60 relative">
+                 <div className="absolute -bottom-6 left-4">
+                    <div className="w-14 h-14 rounded-full border-4 border-[#232428] bg-[#1e1f22] flex items-center justify-center font-bold text-lg uppercase text-white overflow-hidden">
+                       {profChamp ? <img src={champImgUrl(profChamp)} className="w-full h-full object-cover" /> : profName.substring(0,2)}
+                    </div>
+                 </div>
+              </div>
+              
+              <div className="pt-8 px-4 pb-4">
+                 <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-white font-bold text-[15px] truncate">{profName}</span>
+                    {isHost && <Crown size={14} className="text-[#faa61a] flex-shrink-0" />}
+                 </div>
+                 
+                 {profChamp && (
+                    <div className="text-xs text-[#b9bbbe] mb-3">Playing <span className="text-accent font-medium">{profChamp}</span></div>
+                 )}
+                 
+                 <div className="bg-[#1e1f22] rounded p-2.5 mb-3">
+                    <div className="text-[10px] font-bold text-[#8e9297] uppercase mb-1">User ID</div>
+                    <div className="text-xs text-[#dcddde] font-mono select-all">{profPeer}</div>
+                 </div>
+                 
+                 <div className="flex gap-2">
+                    <button 
+                       className="flex-1 py-1.5 text-xs bg-accent/20 text-accent rounded hover:bg-accent/30 transition-colors font-medium cursor-not-allowed opacity-60"
+                       title="Coming soon"
+                       disabled
+                    >
+                       Message
+                    </button>
+                    <button 
+                       className="flex-1 py-1.5 text-xs bg-[#4f545c]/40 text-[#dcddde] rounded hover:bg-[#4f545c]/60 transition-colors font-medium cursor-not-allowed opacity-60"
+                       title="Coming soon"  
+                       disabled
+                    >
+                       View Profile
+                    </button>
+                 </div>
+              </div>
+
+              <button 
+                 onClick={() => setProfilePopup(null)} 
+                 className="absolute top-2 right-2 text-white/50 hover:text-white transition-colors"
+              >
+                 <X size={14} />
+              </button>
+           </div>
+         );
+      })()}
 
       {/* ROOM CONTEXT MENU */}
       {roomContextMenu && (

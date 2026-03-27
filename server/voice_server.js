@@ -312,6 +312,7 @@ function broadcastRoomState(roomCode) {
     const playersData = [...room.players.values()].map((p) => ({
         sid: p.sid,
         name: p.playerName,
+        user_id: p.userId,
         champ: p.championName,
         team: p.team,
         is_streaming: p.isStreaming || false,
