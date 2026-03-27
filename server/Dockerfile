@@ -5,12 +5,16 @@ LABEL description="Voice relay server for LoL Proximity Chat (Node.js)"
 
 WORKDIR /app
 
+# Install native build tools for sqlite3/bcrypt if needed on node:22-slim
+RUN apt-get update && apt-get install -y python3 make g++ && rm -rf /var/lib/apt/lists/*
+
 # Install dependencies first (caching layer)
 COPY package.json package-lock.json* ./
 RUN npm ci --production
 
-# Copy server code
-COPY voice_server.js .
+
+# Copy all server code (including auth, db, version, etc)
+COPY *.js .
 
 # Expose the relay port
 EXPOSE 8080
