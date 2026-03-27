@@ -1,7 +1,8 @@
 // voice server relay
-
 const http = require("http");
 const { Server } = require("socket.io");
+const { handleAuthRoutes, verifyToken } = require("./auth");
+const { getRequiredVersion } = require("./version");
 
 // config
 const HOST = process.env.HOST || "0.0.0.0";
@@ -77,9 +78,10 @@ const NEAR_DISTANCE_THRESHOLD = 50; // grid units for stacking
  * @property {number} packetsOut
  */
 
-function createPlayer(sid, playerName, roomCode, team = "", gamePhase = PHASE_IN_GAME, championName = "") {
+function createPlayer(sid, userId, playerName, roomCode, team = "", gamePhase = PHASE_IN_GAME, championName = "") {
     return {
         sid,
+        userId,
         playerName,
         roomCode,
         team,
@@ -108,9 +110,12 @@ function createMergedPosition(championName, team = "", x = -1, y = -1, isDead = 
     };
 }
 
-function createRoom(roomCode, roomType = ROOM_TYPE_PROXIMITY, teamOnly = false, deadChat = true) {
+function createRoom(roomCode, hostId, roomType = ROOM_TYPE_PROXIMITY, teamOnly = false, deadChat = true) {
     return {
         roomCode,
+        hostId,
+        password: null, // For future password setup
+        isLocked: false,
         roomName: "",
         roomType,
         teamOnly,
@@ -142,9 +147,16 @@ function getRoomsList() {
             type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
+            is_locked: room.isLocked,
+            has_password: !!room.password,
+            host_id: room.hostId,
             players: room.players.size,
             player_names: [...room.players.values()].map((p) => p.playerName),
-            players_data: [...room.players.values()].map((p) => ({ name: p.playerName, champ: p.championName })),
+            players_data: [...room.players.values()].map((p) => ({ 
+                name: p.playerName, 
+                champ: p.championName,
+                user_id: p.userId
+            })),
         });
     }
     return spaceList;
@@ -158,9 +170,12 @@ function broadcastGlobalLobby() {
 const httpServer = http.createServer((req, res) => {
     // CORS headers for all HTTP endpoints
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
+
+    // Intercept Auth routes
+    if (handleAuthRoutes(req, res)) return;
 
     // Simple HTTP routing for health/debug endpoints
     if (req.url === "/health" || req.url === "/") {
@@ -216,6 +231,24 @@ const io = new Server(httpServer, {
     maxHttpBufferSize: 1e6, // 1MB max packet
 });
 
+// Authentication Middleware for Socket.io
+io.use((socket, next) => {
+    const clientVersion = socket.handshake.auth.version;
+    if (clientVersion !== getRequiredVersion()) {
+        return next(new Error("outdated_client"));
+    }
+
+    const token = socket.handshake.auth.token;
+    if (!token) return next(new Error("Authentication error: No token provided"));
+    
+    const decoded = verifyToken(token);
+    if (!decoded) return next(new Error("Authentication error: Invalid or expired JWT token"));
+
+    socket.userId = decoded.userId;
+    socket.username = decoded.username; // Trust verified JWT username
+    next();
+});
+
 
 
 function now() {
@@ -258,6 +291,14 @@ async function removePlayer(sid) {
         log(`Room '${roomCode}' is now empty (waiting 10 mins before deletion)`);
         broadcastGlobalLobby();
     } else {
+        // Reassign host if the host left
+        if (room.hostId === player.userId) {
+            const nextPlayer = Array.from(room.players.values())[0];
+            if (nextPlayer) {
+                room.hostId = nextPlayer.userId;
+                log(`Host for room '${roomCode}' transferred to ${nextPlayer.playerName}`);
+            }
+        }
         broadcastRoomState(roomCode);
         broadcastGlobalLobby(); // Update player counts globally
     }
@@ -282,6 +323,9 @@ function broadcastRoomState(roomCode) {
         team_only: room.teamOnly,
         dead_chat: room.deadChat,
         game_phase: room.gamePhase,
+        host_id: room.hostId,
+        is_locked: room.isLocked,
+        has_password: !!room.password,
         players: playersData,
         team_rosters: room.teamRosters
     });
@@ -316,8 +360,8 @@ io.on("connection", (socket) => {
         if (!rooms.has(roomCode)) {
             const teamOnly = data.team_only || false;
             const deadChat = data.dead_chat !== undefined ? data.dead_chat : true;
-            rooms.set(roomCode, createRoom(roomCode, roomType, teamOnly, deadChat));
-            log(`Room '${roomCode}' explicitly created (type: ${roomType}, empty 10min timer started)`);
+            rooms.set(roomCode, createRoom(roomCode, socket.userId, roomType, teamOnly, deadChat));
+            log(`Room '${roomCode}' explicitly created by ${socket.username} (${socket.userId})`);
             broadcastGlobalLobby();
             socket.emit("room_created_success", { room_code: roomCode });
         }
@@ -348,15 +392,28 @@ io.on("connection", (socket) => {
         if (!rooms.has(roomCode)) {
             const teamOnly = data.team_only || false;
             const deadChat = data.dead_chat !== undefined ? data.dead_chat : true;
-            rooms.set(roomCode, createRoom(roomCode, roomType, teamOnly, deadChat));
-            log(`Room '${roomCode}' created (type: ${roomType}, team: ${teamOnly}, dead: ${deadChat})`);
+            rooms.set(roomCode, createRoom(roomCode, socket.userId, roomType, teamOnly, deadChat));
+            log(`Room '${roomCode}' created implicitly by ${socket.username}`);
         }
 
         const room = rooms.get(roomCode);
+        
+        // Security checks (if not creator)
+        if (room.hostId !== socket.userId) {
+            if (room.isLocked) {
+                socket.emit("room_error", { message: "Room is locked to new players." });
+                return;
+            }
+            if (room.password && room.password !== data.password) {
+                socket.emit("room_error", { message: "Incorrect password." });
+                return;
+            }
+        }
+
         // Clear empty timer
         room.emptySince = null;
 
-        const player = createPlayer(socket.id, playerName, roomCode, team, gamePhase, championName);
+        const player = createPlayer(socket.id, socket.userId, socket.username, roomCode, team, gamePhase, championName);
         room.players.set(socket.id, player);
         sidToRoom.set(socket.id, roomCode);
 
@@ -370,30 +427,79 @@ io.on("connection", (socket) => {
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
             game_phase: room.gamePhase,
+            host_id: room.hostId,
             team_rosters: room.teamRosters,
-            players: [...room.players.values()].map((p) => ({ name: p.playerName, champ: p.championName })),
+            players: [...room.players.values()].map((p) => ({ 
+                name: p.playerName, 
+                champ: p.championName,
+                user_id: p.userId 
+            })),
         });
 
         // Notify others using native room broadcast (excludes sender automatically)
         socket.to(roomCode).emit("player_joined", {
-            player_name: playerName,
+            player_name: socket.username,
             champion_name: player.championName || "",
+            user_id: socket.userId
         });
 
-        log(`${playerName} joined room '${roomCode}' (type: ${room.roomType}, ${room.players.size} players)`);
+        log(`${socket.username} (${socket.userId}) joined room '${roomCode}' (type: ${room.roomType}, ${room.players.size} players)`);
         broadcastRoomState(roomCode);
         broadcastGlobalLobby(); // Update global lobby player counts
+    });
+
+    socket.on("kick_player", async (data) => {
+        const roomCode = sidToRoom.get(socket.id);
+        if (!roomCode || !data.target_name) return;
+        const room = rooms.get(roomCode);
+        if (!room || room.hostId !== socket.userId) return; // Must be host
+        
+        let targetSid = null;
+        let targetPlayer = null;
+        for (const [sid, p] of room.players.entries()) {
+            if (p.playerName === data.target_name) {
+                targetSid = sid;
+                targetPlayer = p;
+                break;
+            }
+        }
+        
+        if (targetPlayer && targetSid) {
+            const targetSocket = io.sockets.sockets.get(targetSid);
+            if (targetSocket) {
+                targetSocket.emit("kicked_from_room");
+            }
+            await removePlayer(targetSid);
+            log(`${socket.username} kicked ${targetPlayer.playerName} from room '${roomCode}'`);
+        }
     });
 
     socket.on("leave_room", async () => {
         await removePlayer(socket.id);
     });
 
+    socket.on("update_room_security", (data) => {
+        const roomCode = sidToRoom.get(socket.id);
+        if (!roomCode) return;
+        const room = rooms.get(roomCode);
+        if (!room || room.hostId !== socket.userId) return; // Must be host
+
+        if (data.password !== undefined) {
+            room.password = data.password ? String(data.password) : null;
+        }
+        if (data.is_locked !== undefined) {
+            room.isLocked = Boolean(data.is_locked);
+        }
+        log(`Room '${roomCode}' security updated (locked: ${room.isLocked}, password: ${!!room.password})`);
+        broadcastRoomState(roomCode);
+        broadcastGlobalLobby();
+    });
+
     socket.on("update_room_settings", (data) => {
         const roomCode = sidToRoom.get(socket.id);
         if (!roomCode) return;
         const room = rooms.get(roomCode);
-        if (!room) return;
+        if (!room || room.hostId !== socket.userId) return; // Must be host
 
         if (data.room_type) {
             const rt = data.room_type.toLowerCase();
@@ -403,7 +509,7 @@ io.on("connection", (socket) => {
         if (data.dead_chat !== undefined) room.deadChat = Boolean(data.dead_chat);
         if (data.room_name !== undefined) room.roomName = String(data.room_name).slice(0, 32);
 
-        log(`Room '${roomCode}' settings updated (name: '${room.roomName}', type: ${room.roomType})`);
+        log(`Room '${roomCode}' settings updated by Host`);
 
         // Broadcast new settings using native room broadcast
         io.to(roomCode).emit("room_settings_updated", {
