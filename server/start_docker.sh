@@ -16,6 +16,10 @@ echo "Building Docker image..."
 docker build -t lol-voice-server .
 
 echo ""
+echo "Removing old container..."
+docker rm -f voice-server 2>/dev/null || true
+
+echo ""
 echo "Running Docker container (Port 8080)..."
 docker run -d --name voice-server -p 8080:8080 -v $(pwd)/data:/app/data --restart unless-stopped lol-voice-server
 
