@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "1.2.0"
+version = "1.2.1"
 description = "LoL Proximity Chat - Voice and streaming for League of Legends"
 authors = ["mikolopo"]
 edition = "2021"
