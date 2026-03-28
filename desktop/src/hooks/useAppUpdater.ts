@@ -1,10 +1,28 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { check } from "@tauri-apps/plugin-updater";
 
 /** Tauri auto-updater — check, download, and install. */
 export function useAppUpdater() {
   const [updateStatus, setUpdateStatus] = useState("");
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [hasUpdate, setHasUpdate] = useState(false);
+
+  // Auto-check silently on mount
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const update = await check();
+        if (update && mounted) {
+          setHasUpdate(true);
+          setUpdateStatus(`Update ${update.version} is available!`);
+        }
+      } catch (err) {
+        console.error("Silent update check failed:", err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   const checkForUpdates = async () => {
     try {
@@ -12,6 +30,7 @@ export function useAppUpdater() {
       setUpdateStatus("Looking for updates...");
       const update = await check();
       if (update) {
+        setHasUpdate(true);
         setUpdateStatus(`Downloading update ${update.version}...`);
         let downloaded = 0;
         let contentLength = 0;
@@ -29,6 +48,7 @@ export function useAppUpdater() {
         });
         setUpdateStatus("Update installed! Please restart the app.");
       } else {
+        setHasUpdate(false);
         setUpdateStatus("You are on the latest version.");
       }
     } catch (err: any) {
@@ -39,5 +59,5 @@ export function useAppUpdater() {
     }
   };
 
-  return { updateStatus, isCheckingUpdate, checkForUpdates };
+  return { updateStatus, isCheckingUpdate, hasUpdate, checkForUpdates };
 }

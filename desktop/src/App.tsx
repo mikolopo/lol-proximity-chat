@@ -186,6 +186,10 @@ function App() {
         authConfirmPassword={auth.authConfirmPassword} setAuthConfirmPassword={auth.setAuthConfirmPassword}
         authError={auth.authError} setAuthError={auth.setAuthError}
         handleAuthSubmit={auth.handleAuthSubmit}
+        hasUpdate={updater.hasUpdate}
+        updateStatus={updater.updateStatus}
+        isCheckingUpdate={updater.isCheckingUpdate}
+        checkForUpdates={updater.checkForUpdates}
       />
     );
   }
