@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Socket } from "socket.io-client";
 
 // ─── Hooks ───
@@ -30,20 +30,20 @@ import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 
 function App() {
   // ─── Backend URL (persisted) ───
-  const backendUrl = useRef(localStorage.getItem('lpc_backendUrl') || "http://localhost:8080");
-  const setBackendUrl = (v: string) => { backendUrl.current = v; localStorage.setItem('lpc_backendUrl', v); };
+  const [backendUrl, _setBackendUrl] = useState(localStorage.getItem('lpc_backendUrl') || "http://localhost:8080");
+  const setBackendUrl = (v: string) => { _setBackendUrl(v); localStorage.setItem('lpc_backendUrl', v); };
 
   // Stable ref that stays in sync with the WebSocket hook's socket
   const globalSocketRef = useRef<Socket | null>(null);
 
   // ─── Auth ───
-  const auth = useAuth(backendUrl.current);
+  const auth = useAuth(backendUrl);
 
   // Initialize app version on mount
   useEffect(() => { auth.initVersion(); }, []);
 
   // ─── Voice & Room Management ───
-  const voice = useVoiceConnection(backendUrl.current, auth.playerName, auth.userId, auth.authToken, auth.appVersion);
+  const voice = useVoiceConnection(backendUrl, auth.playerName, auth.userId, auth.authToken, auth.appVersion);
 
   const rooms = useRoomManagement(
     globalSocketRef,
@@ -53,7 +53,7 @@ function App() {
 
   // ─── WebSocket (room discovery) ───
   const ws = useWebSocket(
-    backendUrl.current, auth.authToken, auth.appVersion,
+    backendUrl, auth.authToken, auth.appVersion,
     rooms.setRooms, rooms.setRoomMembers, voice.setPeerChampions,
   );
 
@@ -73,7 +73,7 @@ function App() {
   });
 
   // ─── Audio Settings ───
-  const audio = useAudioSettings(voice.voiceManagerRef, backendUrl.current);
+  const audio = useAudioSettings(voice.voiceManagerRef, backendUrl);
 
   // ─── Chat ───
   const chat = useChat(voice.voiceManagerRef, rooms.activeRoom?.id);
@@ -83,7 +83,7 @@ function App() {
 
   // ─── Sync Effects ───
   // Persist settings
-  useEffect(() => { localStorage.setItem('lpc_backendUrl', backendUrl.current); }, [backendUrl.current]);
+  useEffect(() => { localStorage.setItem('lpc_backendUrl', backendUrl); }, [backendUrl]);
   useEffect(() => { localStorage.setItem('lpc_playerName', auth.playerName); }, [auth.playerName]);
   useEffect(() => { localStorage.setItem('lpc_peerVols', JSON.stringify(voice.peerVolumes)); }, [voice.peerVolumes]);
 
@@ -178,7 +178,7 @@ function App() {
   if (!auth.authToken) {
     return (
       <AuthPage
-        appVersion={auth.appVersion} backendUrl={backendUrl.current} setBackendUrl={setBackendUrl}
+        appVersion={auth.appVersion} backendUrl={backendUrl} setBackendUrl={setBackendUrl}
         authMode={auth.authMode} setAuthMode={auth.setAuthMode}
         authEmail={auth.authEmail} setAuthEmail={auth.setAuthEmail}
         authDisplayName={auth.authDisplayName} setAuthDisplayName={auth.setAuthDisplayName}
