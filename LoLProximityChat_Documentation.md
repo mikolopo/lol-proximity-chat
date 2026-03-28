@@ -1,47 +1,109 @@
-# LoL Proximity Chat — Technical Overview
+# League of Legends Proximity Chat — Technical Overview
 
-A proximity voice chat app for League of Legends. Players near you on the minimap can hear you clearly. Players far away are quiet or muted entirely.
+**LoL Proximity Chat** is a distributed real-time voice communication system for League of Legends that utilizes computer vision to achieve spatial audio immersion.
 
-## How It Works
+---
 
-### Minimap Detection
-The app captures just the bottom-right corner of your screen where the minimap is — no other part of your screen is read. A YOLO model trained on champion icons figures out where each player is on the map in real time.
+## System Architecture
 
-### Voice
-Your microphone audio is compressed with Opus (the same codec Discord uses) and sent to a relay server. Other players' clients receive it and adjust the volume based on in-game distance. If someone walks into fog of war, their audio fades out gradually.
+The application is split into three decoupled components that interact via a high-performance IPC and network layer:
 
-### Team Detection
-Before the game starts the app talks to the League Client (LCU API) to figure out whos on your team. Once in-game it switches to the Live Client API at `127.0.0.1:2999` to keep that info up to date.
+1.  **Detection Sidecar (client/)**: A Python-based engine responsible for screen capture, YOLO inference, and League API integration.
+2.  **Desktop Client (desktop/)**: A Tauri + React application that manages the UI, voice processing pipeline, and sidecar lifecycle.
+3.  **Relay Server (server/)**: A Node.js Socket.IO server that handles real-time signaling, voice relay, and user authentication.
 
-### Global Accounts & Room Moderation
-To prevent abuse, users must create a persistent account (stored in an SQLite database). 
-- **Authentication**: Users register using an Email, Display Name, and Password. Old accounts can log in via their legacy username.
-- **Identity**: Internally, users are tracked via an immutable `userId` UUID. This prevents impersonation, ensures stable WebRTC bindings, and allows users to freely change their `display name` without breaking the system.
-- **Security**: Socket connections are authorized via JSON Web Tokens (JWT). The user who creates a room is designated as the Host (`hostId` binding), giving them the ability to lock the room, require a password, or kick abusive players by their `userId`.
+---
 
-## Architecture
+## Detection Pipeline (client/)
 
+The detection engine runs as a sidecar process to the main desktop application, communicating via JSON-formatted events over stdout.
+
+### 1. High-Speed Capture
+- **Technology**: mss (Multiple Screen Shot) library.
+- **Workflow**: The engine captures specifically the bottom-right coordinate region of the screen (default minimap location).
+- **Optimization**: Capturing only a sub-region significantly reduces CPU/GPU overhead and PCI-E bandwidth compared to full-frame capture.
+
+### 2. AI Inference (YOLOv8)
+- **Model**: A custom-trained YOLOv8 model exported to ONNX for low-latency CPU inference.
+- **Workflow**: The captured minimap is processed via OpenCV and passed to the YOLO model to detect champion icons.
+- **Output**: Returns normalized coordinates (0-1000 grid) for each detected champion.
+
+### 3. Game State Integration
+- **LCU API**: Queries the League Client for team rosters and game phase during lobby/champ-select.
+- **Live Game API**: Periodically polls 127.0.0.1:2999 for real-time player data (e.g., Death status) to supplement the visual detection.
+
+---
+
+## Desktop Voice Engine (desktop/)
+
+The desktop client implements a custom Web Audio pipeline designed for low latency and high clarity.
+
+### 1. Voice Capture & Suppression
+- **Codec**: Audio is captured as Float32 PCM at 48kHz.
+- **Noise Suppression**: The engine utilizes RNNoise (AI-based suppression) compiled to WASM. It filters out non-voice noise (mechanical clicks, fans) before the audio is chunked for transmission.
+- **Noise Gate**: A linear threshold gate (with a 150ms hold-timer) prevents "choppy" audio cut-offs.
+
+### 2. Spatial Audio Processing
+- **Logic**: Volume is recalculated for every received voice packet based on the distance between the local player and the remote speaker on the minimap grid.
+- **Scaling**:
+    - **Full Volume**: 0 - 80 units.
+    - **Linear Fade**: 80 - 150 units.
+    - **Muted**: > 150 units.
+- **Dynamics Compression**: A global compressor on the output prevents volume spikes (clipping) when multiple players speak simultaneously.
+
+---
+
+## Networking & Persistence (server/)
+
+The relay server ensures that all clients are synchronized and secure.
+
+### 1. Real-Time Relay (Socket.IO)
+- **Voice Relay**: Receives Base64-encoded PCM chunks from clients and broadcasts them to everyone in the same room.
+- **State Sync**: Aggregates position updates from all players to create a "Shared Map View," handling Fog of War by using the reporter's team-context.
+
+### 2. Authentication & Identity
+- **Persistence**: SQLite3 database stores user credentials (bcrypt-hashed) and immutable userId UUIDs.
+- **Authorization**: All Socket.IO connections require a JSON Web Token (JWT).
+- **Room Management**: The creator of a room is assigned as the Host, granting permissions to kick players or lock the room.
+
+---
+
+## Data Protocols
+
+### Voice Data Packet
+```json
+{
+  "user_id": "uuid-v4",
+  "player_name": "PlayerName",
+  "champion_name": "Aatrox",
+  "audio": "base64-pcm-float32",
+  "position": { "x": 450, "y": 510 },
+  "is_dead": false
+}
 ```
-League Client (LCU) ──► ipc_worker.py ──► Minimap Capture (mss)
-                                     └──► YOLO Detection
-                                     └──► Position → Voice Server (Socket.IO + Auth)
-                                                        └──► SQLite (Users & Passwords)
-                                                        └──► Other players
+
+### Detection Event (Sidecar -> UI)
+```json
+{
+  "type": "positions",
+  "data": {
+    "Aatrox": { "x": 450, "y": 510, "confidence": 0.92 },
+    "Jinx": { "x": 120, "y": 800, "confidence": 0.88, "is_dead": true }
+  }
+}
 ```
 
-The Python sidecar (`ipc_worker.py`) handles all the computer vision. The Tauri desktop app handles UI, JWT authentication, and voice. They communicate over stdin/stdout.
+---
 
-## Project Structure
+## Tech Stack Summary
 
-```
-client/          Python backend (capture, detection, API wrappers)
-desktop/         Tauri + React frontend
-server/          Node.js Socket.IO relay server
-```
+| Layer | Key Technologies |
+| :--- | :--- |
+| **Frontend** | React 19, TypeScript, Tailwind CSS v4, Tauri 2 |
+| **Audio** | Web Audio API, RNNoise (WASM), Opus |
+| **Vision** | Python 3.10, OpenCV, Ultralytics YOLOv8 |
+| **Server** | Node.js, Socket.IO, SQLite3, JWT |
 
-## Stack
+---
 
-- **Frontend:** React + TypeScript, bundled as a native app via Tauri (Rust)
-- **Computer Vision:** Python, OpenCV, YOLO (Ultralytics), mss screen capture
-- **Voice:** Opus codec, WebRTC-style audio pipeline
-- **Server:** Node.js, Socket.IO, SQLite3, bcrypt, jsonwebtoken
+**LoL Proximity Chat — Precision Immersion Layer**
