@@ -1,0 +1,129 @@
+import { useState, useCallback } from "react";
+import type { Socket } from "socket.io-client";
+import type { RoomInfo, RoomContextMenuState, ContextMenuState, ProfilePopupState } from "../types";
+import type { VoiceManager } from "../voice/VoiceManager";
+
+/** Room CRUD, lock/password, kick, modal/context-menu visibility. */
+export function useRoomManagement(
+  globalSocketRef: React.MutableRefObject<Socket | null>,
+  voiceManagerRef: React.MutableRefObject<VoiceManager | null>,
+  userId: string | null,
+) {
+  const [rooms, setRooms] = useState<RoomInfo[]>([]);
+  const [activeRoom, setActiveRoom] = useState<RoomInfo | null>(null);
+  const [previewRoom, setPreviewRoom] = useState<RoomInfo | null>(null);
+  const [hoveredRoom, setHoveredRoom] = useState<string | null>(null);
+  const [roomMembers, setRoomMembers] = useState<Record<string, string[]>>({});
+
+  // UI modals
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'debug'>('profile');
+  const [newRoomInput, setNewRoomInput] = useState("");
+  const [newRoomMode, setNewRoomMode] = useState<'global' | 'team' | 'proximity'>('proximity');
+  const [showStreamPickerModal, setShowStreamPickerModal] = useState(false);
+
+  // Context menus / popups
+  const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const [profilePopup, setProfilePopup] = useState<ProfilePopupState | null>(null);
+  const [roomContextMenu, setRoomContextMenu] = useState<RoomContextMenuState | null>(null);
+  const [showPasswordSetup, setShowPasswordSetup] = useState<{ roomCode: string } | null>(null);
+  const [newRoomPassword, setNewRoomPassword] = useState("");
+
+  const submitAddRoom = useCallback((e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanRoom = newRoomInput.trim().toUpperCase();
+    if (!cleanRoom) return;
+
+    if (globalSocketRef.current?.connected) {
+      globalSocketRef.current.emit("create_room", {
+        room_code: cleanRoom,
+        room_type: newRoomMode === 'proximity' ? 'proximity' : 'normal',
+        team_only: newRoomMode === 'team',
+        dead_chat: newRoomMode === 'proximity',
+      });
+      if (!rooms.find(r => r.id === cleanRoom)) {
+        setRooms(prev => [...prev, { id: cleanRoom, mode: newRoomMode }]);
+      }
+      setPreviewRoom({ id: cleanRoom, mode: newRoomMode });
+    } else {
+      if (!rooms.find(r => r.id === cleanRoom)) {
+        const createdRoom: RoomInfo = { id: cleanRoom, mode: newRoomMode };
+        setRooms(prev => [...prev, createdRoom]);
+        setPreviewRoom(createdRoom);
+      } else {
+        setPreviewRoom(rooms.find(r => r.id === cleanRoom) || null);
+      }
+    }
+    setNewRoomInput("");
+    setNewRoomMode('proximity');
+    setShowAddModal(false);
+  }, [newRoomInput, newRoomMode, rooms]);
+
+  const handleRoomContextMenu = useCallback((e: React.MouseEvent, room: RoomInfo) => {
+    e.preventDefault();
+    if (room.host_id === userId) {
+      setRoomContextMenu({
+        x: e.clientX, y: e.clientY,
+        roomCode: room.id, isLocked: !!room.is_locked, hasPassword: !!room.has_password,
+      });
+    }
+  }, [userId]);
+
+  const handleToggleLock = useCallback((targetRoomId: string, isLocked: boolean) => {
+    if (activeRoom?.id === targetRoomId && voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("update_room_security", { is_locked: !isLocked });
+    }
+    setRoomContextMenu(null);
+  }, [activeRoom]);
+
+  const handleRemovePassword = useCallback((targetRoomId: string) => {
+    if (activeRoom?.id === targetRoomId && voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("update_room_security", { password: "" });
+    }
+    setRoomContextMenu(null);
+  }, [activeRoom]);
+
+  const handleDeleteRoom = useCallback((targetRoomId: string) => {
+    globalSocketRef.current?.emit("delete_room", { room_code: targetRoomId });
+    setRoomContextMenu(null);
+  }, []);
+
+  const handleKickPlayer = useCallback((targetId: string) => {
+    if (voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("kick_player", { target_user_id: parseInt(targetId) });
+    }
+    setContextMenu(null);
+  }, []);
+
+  const handleContextMenu = useCallback((e: React.MouseEvent, peerId: string) => {
+    e.preventDefault();
+    setContextMenu({ x: e.clientX, y: e.clientY, peerId });
+  }, []);
+
+  const setRoomPassword = useCallback((password: string) => {
+    if (voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("update_room_security", { password: password.trim() });
+    }
+    setShowPasswordSetup(null);
+    setNewRoomPassword("");
+    setRoomContextMenu(null);
+  }, []);
+
+  return {
+    rooms, setRooms, activeRoom, setActiveRoom, previewRoom, setPreviewRoom,
+    hoveredRoom, setHoveredRoom, roomMembers, setRoomMembers,
+    // Modals
+    showAddModal, setShowAddModal, showSettingsModal, setShowSettingsModal,
+    settingsTab, setSettingsTab,
+    newRoomInput, setNewRoomInput, newRoomMode, setNewRoomMode,
+    showStreamPickerModal, setShowStreamPickerModal,
+    // Context menus
+    contextMenu, setContextMenu, profilePopup, setProfilePopup,
+    roomContextMenu, setRoomContextMenu,
+    showPasswordSetup, setShowPasswordSetup, newRoomPassword, setNewRoomPassword,
+    // Handlers
+    submitAddRoom, handleRoomContextMenu, handleToggleLock, handleRemovePassword,
+    handleDeleteRoom, handleKickPlayer, handleContextMenu, setRoomPassword,
+  };
+}

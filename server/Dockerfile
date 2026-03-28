@@ -1,16 +1,20 @@
-FROM node:22-slim
+FROM node:22
 
 LABEL maintainer="LoL Proximity Chat Team"
 LABEL description="Voice relay server for LoL Proximity Chat (Node.js)"
 
 WORKDIR /app
 
-# Install dependencies first (caching layer)
-COPY package.json package-lock.json* ./
-RUN npm ci --production
+# Install native build tools for sqlite3/bcrypt if needed
+RUN apt-get update && apt-get install -y python3 make g++ sqlite3 libsqlite3-dev && rm -rf /var/lib/apt/lists/*
 
-# Copy server code
-COPY voice_server.js .
+# Install dependencies and force native compilation to bypass GLIBC mismatch
+COPY package.json package-lock.json* ./
+RUN npm ci --production --build-from-source=sqlite3
+
+
+# Copy all server code (including auth, db, version, etc)
+COPY *.js .
 
 # Expose the relay port
 EXPOSE 8080
