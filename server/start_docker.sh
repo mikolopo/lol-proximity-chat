@@ -21,7 +21,7 @@ docker rm -f voice-server 2>/dev/null || true
 
 echo ""
 echo "Running Docker container (Port 8080)..."
-docker run -d --name voice-server -p 8080:8080 -v $(pwd)/data:/app/data --restart unless-stopped lol-voice-server
+docker run -d --name voice-server -p 8080:8080 -v "$(pwd)/data:/app/data" --restart unless-stopped lol-voice-server
 
 echo ""
 echo "Server is now running in the background!"
