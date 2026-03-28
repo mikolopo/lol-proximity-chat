@@ -1,4 +1,4 @@
-###LoL Proximity Chat
+# LoL Proximity Chat
 
 ##  How It Works - or doesn't 
 
