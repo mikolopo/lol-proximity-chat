@@ -142,29 +142,51 @@ function App() {
   });
   
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [authUsername, setAuthUsername] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authDisplayName, setAuthDisplayName] = useState('');
   const [authPassword, setAuthPassword] = useState('');
+  const [authConfirmPassword, setAuthConfirmPassword] = useState('');
   const [authError, setAuthError] = useState('');
+  const [displayNameStatus, setDisplayNameStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [displayNameError, setDisplayNameError] = useState('');
+
+  // Password change state
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [pwdOld, setPwdOld] = useState('');
+  const [pwdNew, setPwdNew] = useState('');
+  const [pwdConfirm, setPwdConfirm] = useState('');
+  const [pwdError, setPwdError] = useState('');
+  const [pwdStatus, setPwdStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
 
   const handleAuthSubmit = async (e: React.FormEvent) => {
       e.preventDefault();
       setAuthError("");
+      
+      if (authMode === 'register' && authPassword !== authConfirmPassword) {
+          setAuthError("Passwords do not match");
+          return;
+      }
+      
       const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
+      const payload = authMode === 'login' 
+          ? { email: authEmail, password: authPassword, version: appVersion }
+          : { email: authEmail, displayName: authDisplayName, password: authPassword, version: appVersion };
+      
       try {
           const res = await fetch(`http://${backendUrl.replace('http://', '').replace(/:\d+$/, '')}:8080${endpoint}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: authUsername, password: authPassword, version: appVersion })
+              body: JSON.stringify(payload)
           });
           const data = await res.json();
           if (!res.ok) throw new Error(data.error || 'Authentication failed');
           
           localStorage.setItem("token", data.token);
           if (data.userId) localStorage.setItem("userId", data.userId.toString());
-          localStorage.setItem("lpc_playerName", data.username);
+          localStorage.setItem("lpc_playerName", data.displayName);
           setAuthToken(data.token);
           setUserId(data.userId);
-          setPlayerName(data.username);
+          setPlayerName(data.displayName);
       } catch (err: any) {
           setAuthError(err.message);
       }
@@ -184,6 +206,62 @@ function App() {
       setPreviewRoom(null);
   };
 
+  const updateDisplayName = async () => {
+      setDisplayNameStatus('saving');
+      setDisplayNameError('');
+      try {
+          const res = await fetch(`http://${backendUrl.replace('http://', '').replace(/:\d+$/, '')}:8080/auth/update-display-name`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+              body: JSON.stringify({ displayName: playerName })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to update display name');
+          setDisplayNameStatus('saved');
+          localStorage.setItem('lpc_playerName', data.displayName);
+          setPlayerName(data.displayName);
+          setTimeout(() => setDisplayNameStatus('idle'), 3000);
+      } catch (err: any) {
+          setDisplayNameStatus('error');
+          setDisplayNameError(err.message);
+      }
+  };
+
+  const handleChangePasswordSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setPwdError('');
+      if (pwdNew !== pwdConfirm) {
+          setPwdError("New passwords do not match.");
+          return;
+      }
+      if (pwdNew.length < 5) {
+          setPwdError("New password must be at least 5 characters.");
+          return;
+      }
+
+      setPwdStatus('saving');
+      try {
+          const res = await fetch(`http://${backendUrl.replace('http://', '').replace(/:\d+$/, '')}:8080/auth/change-password`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+              body: JSON.stringify({ oldPassword: pwdOld, newPassword: pwdNew })
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || 'Failed to change password');
+          setPwdStatus('saved');
+          setTimeout(() => {
+              setPwdStatus('idle');
+              setShowPasswordModal(false);
+              setPwdOld('');
+              setPwdNew('');
+              setPwdConfirm('');
+          }, 1500);
+      } catch (err: any) {
+          setPwdStatus('error');
+          setPwdError(err.message);
+      }
+  };
+
   // Stream watching state
   const watchedStreamRef = useRef<string | null>(null);
   const [watchedStream, _setWatchedStream] = useState<string | null>(null);
@@ -197,10 +275,17 @@ function App() {
   const [updateStatus, setUpdateStatus] = useState<string>("");
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
 
-  // Keep VoiceManager name in sync with UI
+  const prevPlayerNameRef = useRef(playerName);
   useEffect(() => {
+     const oldName = prevPlayerNameRef.current;
+     prevPlayerNameRef.current = playerName;
      if (voiceManagerRef.current) {
          voiceManagerRef.current.setPlayerName(playerName);
+         // Notify server of rename and clean old name from local peer tracking
+         if (oldName !== playerName && voiceManagerRef.current.socket?.connected) {
+             voiceManagerRef.current.socket.emit("rename", { new_name: playerName });
+             setKnownPeers(prev => { const n = new Set(prev); n.delete(oldName); return n; });
+         }
      }
   }, [playerName]);
 
@@ -523,6 +608,14 @@ function App() {
               const names = (data.players || []).map((p: any) => typeof p === 'string' ? p : p.name);
               setLogs(l => [...l.slice(-50), `[SERVER] Joined room ${data.room_code} — Players: ${names.join(', ')}`]);
               playNotificationSound('join');
+              
+              // Ensure activeRoom has the correct host_id
+              setActiveRoom(prev => prev ? {
+                  ...prev,
+                  host_id: data.host_id,
+                  players_data: data.players
+              } : null);
+
               // Add peers from server response
               if (data.players) {
                 const newChamps: Record<string, string> = {};
@@ -560,6 +653,12 @@ function App() {
                setServerMapData(data);
            } else if (event === 'room_state') {
                // Full robust sync
+               setActiveRoom(prev => prev ? {
+                   ...prev,
+                   host_id: data.host_id,
+                   players_data: data.players
+               } : null);
+               
                const players = data.players || [];
                const ids = players.map((p: any) => p.user_id?.toString() || p.name);
                setKnownPeers(new Set(ids.filter((id: string) => id !== userId)));
@@ -886,19 +985,35 @@ function App() {
                         />
                     </div>
                     <div>
-                        <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Username</label>
+                        <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Email (or Legacy Username)</label>
                         <input 
                             autoFocus
                             type="text" 
-                            name="username"
+                            name="email"
                             autoComplete="username"
-                            value={authUsername}
-                            onChange={(e) => setAuthUsername(e.target.value)}
+                            value={authEmail}
+                            onChange={(e) => setAuthEmail(e.target.value)}
                             className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
-                            placeholder="Username"
+                            placeholder="you@example.com or Username"
                             required
                         />
                     </div>
+                    {authMode === 'register' && (
+                        <div>
+                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Display Name</label>
+                            <input 
+                                type="text" 
+                                name="displayName"
+                                value={authDisplayName}
+                                onChange={(e) => setAuthDisplayName(e.target.value)}
+                                className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                                placeholder="How others will see you"
+                                required
+                                minLength={3}
+                                maxLength={20}
+                            />
+                        </div>
+                    )}
                     <div>
                         <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 flex justify-between tracking-wider">
                            <span>Password</span>
@@ -906,16 +1021,32 @@ function App() {
                         <input 
                             type="password"
                             name="password"
-                            autoComplete="current-password"
+                            autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
                             value={authPassword}
                             onChange={(e) => setAuthPassword(e.target.value)}
                             className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
                             required
+                            minLength={5}
                         />
                     </div>
+                    {authMode === 'register' && (
+                        <div>
+                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block tracking-wider">Confirm Password</label>
+                            <input 
+                                type="password"
+                                name="confirmPassword"
+                                autoComplete="new-password"
+                                value={authConfirmPassword}
+                                onChange={(e) => setAuthConfirmPassword(e.target.value)}
+                                className="w-full bg-[#1e1f22] border-none text-white px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                                required
+                                minLength={5}
+                            />
+                        </div>
+                    )}
                     <button 
                         type="submit" 
-                        disabled={!authUsername.trim() || !authPassword}
+                        disabled={!authEmail.trim() || !authPassword || (authMode === 'register' && (!authDisplayName.trim() || !authConfirmPassword))}
                         className="w-full py-2.5 bg-accent hover:bg-accent-hover text-white rounded font-medium mt-2 transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
                     >
                         {authMode === 'login' ? <LogIn size={18} /> : <Plus size={18} />}
@@ -1062,13 +1193,23 @@ function App() {
                      <div className="flex flex-col gap-4">
                          <div>
                             <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Display Name</label>
-                            <input 
-                              type="text" 
-                              value={playerName}
-                              onChange={(e) => setPlayerName(e.target.value)}
-                              className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
-                            />
+                            <div className="flex gap-2">
+                                <input 
+                                  type="text" 
+                                  value={playerName}
+                                  onChange={(e) => { setPlayerName(e.target.value); setDisplayNameStatus('idle'); setDisplayNameError(''); }}
+                                  className="flex-1 bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                                />
+                                <button
+                                  onClick={updateDisplayName}
+                                  disabled={displayNameStatus === 'saving' || !playerName.trim()}
+                                  className={`px-4 py-2 font-medium rounded text-sm transition-colors ${displayNameStatus === 'saved' ? 'bg-[#3ba55c] text-white' : 'bg-accent hover:bg-accent-hover disabled:bg-accent/50 text-white'}`}
+                                >
+                                    {displayNameStatus === 'saving' ? 'Saving...' : displayNameStatus === 'saved' ? 'Saved!' : 'Save'}
+                                </button>
+                            </div>
                             <p className="text-xs text-text-muted mt-1">This is how others will see you in LPC channels.</p>
+                            {displayNameError && <p className="text-xs text-red-400 mt-1">{displayNameError}</p>}
                          </div>
                          
                          <div>
@@ -1077,6 +1218,19 @@ function App() {
                                {userId || 'Not Logged In'}
                             </div>
                             <p className="text-xs text-text-muted mt-1">Your unique LPC identifier. Used for system routing and admin verification.</p>
+                         </div>
+                         
+                         <div className="pt-4 border-t border-[#202225]">
+                            <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Password & Authentication</label>
+                            <button
+                                onClick={() => {
+                                    setShowPasswordModal(true);
+                                    setPwdOld(''); setPwdNew(''); setPwdConfirm(''); setPwdError(''); setPwdStatus('idle');
+                                }}
+                                className="px-4 py-2 bg-[#4f545c] hover:bg-[#5d6269] text-white text-sm font-medium rounded transition-colors"
+                            >
+                                Change Password
+                            </button>
                          </div>
                      </div>
                  )}
@@ -1373,7 +1527,7 @@ function App() {
                             <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-accent'}`}>
                                {localChampion ? <img src={champImgUrl(localChampion)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display='none'; (e.target as HTMLImageElement).parentElement!.textContent = playerName.substring(0,2); }} /> : playerName.substring(0,2)}
                             </div>
-                            <span className={`font-medium min-w-0 truncate ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'text-[#3ba55c]' : ''}`}>{playerName} <span className="text-xs font-normal text-[#8e9297] opacity-60 ml-1">(You)</span></span>
+                            <span className={`font-medium min-w-0 truncate ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'text-[#3ba55c]' : ''}`}>{playerName}</span>
                             {activeRoom?.host_id === userId && (
                               <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />
                             )}
@@ -1382,7 +1536,7 @@ function App() {
                           
                           {/* Remote Peers rendered underneath, glowing green if activeSpeakers has them */}
                           {Array.from(knownPeers).map(peer => {
-                             if (peer === playerName) return null;
+                             if (peer === playerName || peer === userId) return null;
                              const isSpeaking = activeSpeakers.has(peer);
                              const peerChamp = peerChampions[peer];
                              const peerData = activeRoom?.players_data?.find((pd: any) => pd.name === peer);
@@ -1741,8 +1895,8 @@ function App() {
                                 </button>
                              )}
                           </div>
-                          {[...knownPeers].filter(p => p !== userId).map(peer => {
-                             const uiName = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === peer)?.name || peer;
+                          {[...knownPeers].filter(p => p !== userId && p !== playerName).map(peer => {
+                             const uiName = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === peer || pd.name === peer)?.name || peer;
                              const crownIcon = activeRoom?.host_id?.toString() === peer ? <Crown size={12} className="text-[#faa61a]" /> : null;
                              return (
                              <div key={peer} 
@@ -1829,9 +1983,10 @@ function App() {
       {/* PLAYER PROFILE POPUP */}
       {profilePopup && (() => {
          const profPeer = profilePopup.peerId;
-         const profData = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === profPeer);
-         const profName = profData?.name || profPeer;
-         const profChamp = peerChampions[profPeer] || profData?.champ || '';
+         const isSelf = profPeer === userId;
+         const profData = activeRoom?.players_data?.find(pd => pd.user_id?.toString() === profPeer || pd.name === profPeer);
+         const profAccName = profData?.name || (isSelf ? playerName : profPeer);
+         const profChamp = isSelf ? (localChampion || '') : (peerChampions[profPeer] || profData?.champ || '');
          const isHost = activeRoom?.host_id?.toString() === profPeer;
          return (
            <div 
@@ -1843,14 +1998,14 @@ function App() {
               <div className="h-16 bg-gradient-to-r from-accent/60 to-[#5865f2]/60 relative">
                  <div className="absolute -bottom-6 left-4">
                     <div className="w-14 h-14 rounded-full border-4 border-[#232428] bg-[#1e1f22] flex items-center justify-center font-bold text-lg uppercase text-white overflow-hidden">
-                       {profChamp ? <img src={champImgUrl(profChamp)} className="w-full h-full object-cover" /> : profName.substring(0,2)}
+                       {profChamp ? <img src={champImgUrl(profChamp)} className="w-full h-full object-cover" /> : profAccName.substring(0,2)}
                     </div>
                  </div>
               </div>
               
               <div className="pt-8 px-4 pb-4">
                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-white font-bold text-[15px] truncate">{profName}</span>
+                    <span className="text-white font-bold text-[15px] truncate">{profAccName}</span>
                     {isHost && <Crown size={14} className="text-[#faa61a] flex-shrink-0" />}
                  </div>
                  
@@ -1859,8 +2014,8 @@ function App() {
                  )}
                  
                  <div className="bg-[#1e1f22] rounded p-2.5 mb-3">
-                    <div className="text-[10px] font-bold text-[#8e9297] uppercase mb-1">User ID</div>
-                    <div className="text-xs text-[#dcddde] font-mono select-all">{profPeer}</div>
+                    <div className="text-[10px] font-bold text-[#8e9297] uppercase mb-1">Account Name</div>
+                    <div className="text-xs text-[#dcddde] font-medium select-all">{profAccName}</div>
                  </div>
                  
                  <div className="flex gap-2">
@@ -1978,6 +2133,56 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {/* PASSWORD CHANGE MODAL */}
+      {showPasswordModal && (
+        <div className="absolute inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+           <div className="bg-[#36393f] w-full max-w-[400px] rounded-lg shadow-2xl p-6 relative">
+              <button 
+                 onClick={() => setShowPasswordModal(false)}
+                 className="absolute top-4 right-4 text-text-muted hover:text-white"
+              ><X size={20} /></button>
+              <h2 className="text-xl font-bold text-white mb-2">Change Password</h2>
+              <p className="text-sm text-[#b9bbbe] mb-6">Enter your current password and a new password.</p>
+              
+              <form onSubmit={handleChangePasswordSubmit} className="flex flex-col gap-4">
+                  {pwdError && <div className="p-2 bg-red-500/10 border border-red-500/50 rounded text-red-400 text-xs">{pwdError}</div>}
+                  {pwdStatus === 'saved' && <div className="p-2 bg-green-500/10 border border-green-500/50 rounded text-green-400 text-xs">Password changed successfully!</div>}
+                  
+                  <div>
+                      <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Current Password</label>
+                      <input 
+                        type="password" value={pwdOld} onChange={(e) => setPwdOld(e.target.value)}
+                        className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                        required
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">New Password</label>
+                      <input 
+                        type="password" value={pwdNew} onChange={(e) => setPwdNew(e.target.value)}
+                        className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                        required minLength={5}
+                      />
+                  </div>
+                  <div>
+                      <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Confirm New Password</label>
+                      <input 
+                        type="password" value={pwdConfirm} onChange={(e) => setPwdConfirm(e.target.value)}
+                        className="w-full bg-[#202225] border-none text-text-normal px-3 py-2.5 rounded text-[15px] outline-none focus:ring-1 focus:ring-accent"
+                        required minLength={5}
+                      />
+                  </div>
+                  <div className="flex justify-end gap-3 mt-4">
+                      <button type="button" onClick={() => setShowPasswordModal(false)} className="px-4 py-2 text-sm font-medium text-white hover:underline">Cancel</button>
+                      <button type="submit" disabled={pwdStatus === 'saving'} className="px-6 py-2 bg-accent hover:bg-accent-hover text-white text-sm font-medium rounded transition-colors disabled:opacity-50">
+                          {pwdStatus === 'saving' ? 'Saving...' : 'Save Password'}
+                      </button>
+                  </div>
+              </form>
+           </div>
         </div>
       )}
 

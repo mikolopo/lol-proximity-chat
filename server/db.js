@@ -17,13 +17,27 @@ db.serialize(() => {
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE,
+            email TEXT UNIQUE,
             password_hash TEXT,
+            display_name TEXT,
             created_at INTEGER
         )
     `);
     
-    // We could store rooms here later, but for now Rooms remain transient
-    // as per typical voice server behavior, except we will attach hostId.
+    // Migrations for existing DBs
+    db.run(`ALTER TABLE users ADD COLUMN display_name TEXT`, (err) => {
+        if (!err) {
+            db.run(`UPDATE users SET display_name = username WHERE display_name IS NULL`);
+            console.log("Migrated: added display_name column");
+        }
+    });
+    db.run(`ALTER TABLE users ADD COLUMN email TEXT`, (err) => {
+        if (!err) {
+            // Backfill: use username as email placeholder for existing users
+            db.run(`UPDATE users SET email = username WHERE email IS NULL`);
+            console.log("Migrated: added email column");
+        }
+    });
 });
 
 module.exports = db;

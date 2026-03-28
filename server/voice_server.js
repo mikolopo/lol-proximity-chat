@@ -524,6 +524,34 @@ io.on("connection", (socket) => {
         broadcastGlobalLobby();
     });
 
+    // Player display name rename
+    socket.on("rename", (data) => {
+        const newName = data.new_name;
+        if (!newName || typeof newName !== 'string') return;
+        const trimmed = String(newName).trim().slice(0, 32);
+        if (!trimmed) return;
+
+        const roomCode = sidToRoom.get(socket.id);
+        if (roomCode) {
+            const room = rooms.get(roomCode);
+            if (room) {
+                const player = room.players.get(socket.id);
+                if (player) {
+                    const oldName = player.playerName;
+                    player.playerName = trimmed;
+                    io.to(roomCode).emit("player_renamed", { 
+                        old_name: oldName, 
+                        new_name: trimmed, 
+                        user_id: socket.userId 
+                    });
+                    log(`${oldName} renamed to ${trimmed} (${socket.userId})`);
+                    broadcastRoomState(roomCode);
+                    broadcastGlobalLobby();
+                }
+            }
+        }
+    });
+
     socket.on("update_room_settings", (data) => {
         const roomCode = sidToRoom.get(socket.id);
         if (!roomCode) return;

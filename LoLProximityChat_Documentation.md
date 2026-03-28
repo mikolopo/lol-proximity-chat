@@ -14,7 +14,10 @@ Your microphone audio is compressed with Opus (the same codec Discord uses) and 
 Before the game starts the app talks to the League Client (LCU API) to figure out whos on your team. Once in-game it switches to the Live Client API at `127.0.0.1:2999` to keep that info up to date.
 
 ### Global Accounts & Room Moderation
-To prevent abuse, users must create a persistent account (stored in an SQLite database). Socket connections are authorized via JSON Web Tokens (JWT). The user who creates a room is designated as the Host, giving them the ability to lock the room, require a password, or kick abusive players.
+To prevent abuse, users must create a persistent account (stored in an SQLite database). 
+- **Authentication**: Users register using an Email, Display Name, and Password. Old accounts can log in via their legacy username.
+- **Identity**: Internally, users are tracked via an immutable `userId` UUID. This prevents impersonation, ensures stable WebRTC bindings, and allows users to freely change their `display name` without breaking the system.
+- **Security**: Socket connections are authorized via JSON Web Tokens (JWT). The user who creates a room is designated as the Host (`hostId` binding), giving them the ability to lock the room, require a password, or kick abusive players by their `userId`.
 
 ## Architecture
 
