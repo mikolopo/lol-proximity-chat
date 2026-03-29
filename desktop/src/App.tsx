@@ -346,7 +346,7 @@ function App() {
             e.preventDefault();
             const targetCode = rooms.showPasswordJoin?.roomCode;
             rooms.setShowPasswordJoin(null);
-            const targetRoom = rooms.rooms.find(r => r.id === targetCode);
+            const targetRoom = rooms.rooms.find(r => r.id === targetCode) || (rooms.previewRoom?.id === targetCode ? rooms.previewRoom : null);
             if (targetRoom) {
               wrappedConnect({ ...targetRoom, password: rooms.joinRoomPassword });
             }

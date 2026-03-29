@@ -67,14 +67,15 @@ export function MatchDashboard({
                   const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
                   const isActive = knownPeers.has(champ) || champ === localChampion;
                   const isDead = pos.is_dead;
-                  // Standard orientation: Blue (0,0) is Bottom-Left, Red (1,1) is Top-Right
-                  const leftPercent = (pos.x / 1000) * 100;
-                  const bottomPercent = (pos.y / 1000) * 100;
+                  // Inverted orientation: If YOLO sends 1000,1000 for Blue (which we expect at Bottom-Left)
+                  // we do 100 - percent so that Blue renders at left:0, bottom:0.
+                  const leftPercent = 100 - (pos.x / 10);
+                  const bottomPercent = 100 - (pos.y / 10);
 
                   return (
                     <div
                       key={champ}
-                      className={`absolute w-3 h-3 -mt-1.5 -ml-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} ${isActive ? 'ring-2 ring-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'shadow-sm'}`}
+                      className={`absolute w-3 h-3 -mt-1.5 -ml-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} ${isActive ? 'ring-2 ring-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'shadow-sm'} group`}
                       style={{ left: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
                       title={`${champ} (${Math.round(pos.x)}, ${Math.round(pos.y)}) - ${pos.visibility} - ${(pos.confidence * 100).toFixed(0)}%`}
                     >
