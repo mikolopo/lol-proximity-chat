@@ -39,6 +39,7 @@ function App() {
         roomCode={params.get('room')}
         token={params.get('token')}
         backendUrl={params.get('backend')}
+        appVersion={params.get('version')}
       />
     );
   }
@@ -160,11 +161,11 @@ function App() {
   };
 
   // ─── Wrapped handlers that bridge hooks ───
-  const wrappedConnect = (room: typeof rooms.activeRoom & {}) => {
+  const wrappedConnect = (room: any) => {
     if (!room) return;
     if (room.has_password && !room.password) {
-        rooms.setShowPasswordJoin({ roomCode: room.id });
-        return;
+      rooms.setShowPasswordJoin({ roomCode: room.id });
+      return;
     }
     voice.handleConnect(
       room, audio.selectedMic, audio.selectedSpeaker,
@@ -174,9 +175,9 @@ function App() {
       (msg) => chat.addMessage(room.id, msg),
       (errMsg, errRoomId) => {
         if (errMsg === "Incorrect password.") {
-            rooms.setShowPasswordJoin({ roomCode: errRoomId });
+          rooms.setShowPasswordJoin({ roomCode: errRoomId });
         } else {
-            alert(`Server Error: ${errMsg}`);
+          alert(`Server Error: ${errMsg}`);
         }
       }
     );
@@ -197,6 +198,14 @@ function App() {
       rooms.setActiveRoom(null);
       rooms.setPreviewRoom(null);
     });
+  };
+
+  const handleServerSidebarClick = (room: any | null) => {
+    if (room && room.has_password && room.id !== rooms.activeRoom?.id) {
+       rooms.setShowPasswordJoin({ roomCode: room.id });
+       return;
+    }
+    rooms.setPreviewRoom(room);
   };
 
   // ─── Auth Gate ───
@@ -267,6 +276,7 @@ function App() {
           isCV2DebugEnabled={sidecar.isCV2DebugEnabled} toggleCV2Debug={sidecar.toggleCV2Debug}
           triggerManualRescan={sidecar.triggerManualRescan}
           activeRoomId={rooms.activeRoom?.id || null} authToken={auth.authToken} backendUrl={backendUrl}
+          isGuest={auth.isGuest}
         />
       )}
       {auth.showPasswordModal && (
@@ -279,46 +289,6 @@ function App() {
           onSubmit={auth.handleChangePasswordSubmit}
         />
       )}
-
-      {/* Layout: Server Sidebar | Channel Sidebar | Main Content | Match Dashboard */}
-      <ServerSidebar
-        rooms={rooms.rooms} previewRoom={rooms.previewRoom} activeRoom={rooms.activeRoom}
-        isConnected={voice.isConnected} hoveredRoom={rooms.hoveredRoom} roomMembers={rooms.roomMembers}
-        setPreviewRoom={rooms.setPreviewRoom} setHoveredRoom={rooms.setHoveredRoom}
-        setShowAddModal={rooms.setShowAddModal} handleRoomContextMenu={rooms.handleRoomContextMenu}
-      />
-      <ChannelSidebar
-        previewRoom={rooms.previewRoom} activeRoom={rooms.activeRoom} isConnected={voice.isConnected}
-        playerName={auth.playerName} userId={auth.userId} localChampion={voice.localChampion}
-        isMicMuted={voice.isMicMuted} isDeafened={voice.isDeafened} isStreaming={voice.isStreaming}
-        knownPeers={voice.knownPeers} activeSpeakers={voice.activeSpeakers} peerChampions={voice.peerChampions}
-        handleConnect={wrappedConnect} handleDisconnect={wrappedDisconnect}
-        toggleMic={voice.toggleMic} toggleDeafen={voice.toggleDeafen} toggleStreaming={toggleStreaming}
-        setShowSettingsModal={rooms.setShowSettingsModal}
-        setProfilePopup={rooms.setProfilePopup} handleContextMenu={rooms.handleContextMenu}
-      />
-      <div className="flex-1 bg-[#36393f] flex overflow-hidden">
-        <MainContent
-          previewRoom={rooms.previewRoom} activeRoom={rooms.activeRoom} isConnected={voice.isConnected}
-          currentStream={voice.currentStream} setCurrentStream={() => voice.setCurrentStream(null)}
-          setWatchedStream={voice.setWatchedStream} peerChampions={voice.peerChampions}
-          handleConnect={wrappedConnect}
-          chatMessages={chat.chatMessages} chatInput={chat.chatInput} setChatInput={chat.setChatInput}
-          chatEndRef={chat.chatEndRef} playerName={auth.playerName} sendChatMessage={chat.sendChatMessage}
-          logs={sidecar.logs} setLogs={sidecar.setLogs} logEndRef={sidecar.logEndRef}
-        />
-        {rooms.activeRoom && rooms.previewRoom?.id === rooms.activeRoom.id && voice.isConnected && (
-          <MatchDashboard
-            activeRoom={rooms.activeRoom} localChampion={voice.localChampion}
-            serverMapData={voice.serverMapData} knownPeers={voice.knownPeers}
-            peerChampions={voice.peerChampions} playerName={auth.playerName} userId={auth.userId}
-            isStreaming={voice.isStreaming} streamingPlayers={voice.streamingPlayers}
-            watchedStream={voice.watchedStream} setWatchedStream={voice.setWatchedStream}
-            setProfilePopup={rooms.setProfilePopup} handleContextMenu={rooms.handleContextMenu}
-            toggleLiveMap={rooms.toggleLiveMap}
-          />
-        )}
-      </div>
 
       {/* Floating overlays */}
       {rooms.contextMenu && (
@@ -361,14 +331,56 @@ function App() {
           onClose={() => { rooms.setShowPasswordJoin(null); rooms.setJoinRoomPassword(""); }}
           onSubmit={(e) => {
             e.preventDefault();
+            const targetCode = rooms.showPasswordJoin?.roomCode;
             rooms.setShowPasswordJoin(null);
-            if (rooms.previewRoom) {
-              wrappedConnect({ ...rooms.previewRoom, password: rooms.joinRoomPassword });
+            const targetRoom = rooms.rooms.find(r => r.id === targetCode);
+            if (targetRoom) {
+              wrappedConnect({ ...targetRoom, password: rooms.joinRoomPassword });
             }
             rooms.setJoinRoomPassword("");
           }}
         />
       )}
+
+      {/* Layout: Server Sidebar | Channel Sidebar | Main Content | Match Dashboard */}
+      <ServerSidebar
+        rooms={rooms.rooms} previewRoom={rooms.previewRoom} activeRoom={rooms.activeRoom}
+        isConnected={voice.isConnected} hoveredRoom={rooms.hoveredRoom} roomMembers={rooms.roomMembers}
+        setPreviewRoom={handleServerSidebarClick} setHoveredRoom={rooms.setHoveredRoom}
+        setShowAddModal={rooms.setShowAddModal} handleRoomContextMenu={rooms.handleRoomContextMenu}
+      />
+      <ChannelSidebar
+        previewRoom={rooms.previewRoom} activeRoom={rooms.activeRoom} isConnected={voice.isConnected}
+        playerName={auth.playerName} userId={auth.userId} localChampion={voice.localChampion}
+        isMicMuted={voice.isMicMuted} isDeafened={voice.isDeafened} isStreaming={voice.isStreaming}
+        knownPeers={voice.knownPeers} activeSpeakers={voice.activeSpeakers} peerChampions={voice.peerChampions}
+        handleConnect={wrappedConnect} handleDisconnect={wrappedDisconnect}
+        toggleMic={voice.toggleMic} toggleDeafen={voice.toggleDeafen} toggleStreaming={toggleStreaming}
+        setShowSettingsModal={rooms.setShowSettingsModal}
+        setProfilePopup={rooms.setProfilePopup} handleContextMenu={rooms.handleContextMenu}
+      />
+      <div className="flex-1 bg-[#36393f] flex overflow-hidden">
+        <MainContent
+          previewRoom={rooms.previewRoom} activeRoom={rooms.activeRoom} isConnected={voice.isConnected}
+          currentStream={voice.currentStream} setCurrentStream={() => voice.setCurrentStream(null)}
+          setWatchedStream={voice.setWatchedStream} peerChampions={voice.peerChampions}
+          handleConnect={wrappedConnect}
+          chatMessages={chat.chatMessages} chatInput={chat.chatInput} setChatInput={chat.setChatInput}
+          chatEndRef={chat.chatEndRef} playerName={auth.playerName} sendChatMessage={chat.sendChatMessage}
+          logs={sidecar.logs} setLogs={sidecar.setLogs} logEndRef={sidecar.logEndRef}
+        />
+        {rooms.activeRoom && rooms.previewRoom?.id === rooms.activeRoom.id && voice.isConnected && (
+          <MatchDashboard
+            activeRoom={rooms.activeRoom} localChampion={voice.localChampion}
+            serverMapData={voice.serverMapData} knownPeers={voice.knownPeers}
+            peerChampions={voice.peerChampions} playerName={auth.playerName} userId={auth.userId}
+            isStreaming={voice.isStreaming} streamingPlayers={voice.streamingPlayers}
+            watchedStream={voice.watchedStream} setWatchedStream={voice.setWatchedStream}
+            setProfilePopup={rooms.setProfilePopup} handleContextMenu={rooms.handleContextMenu}
+            toggleLiveMap={rooms.toggleLiveMap}
+          />
+        )}
+      </div>
     </div>
   );
 }

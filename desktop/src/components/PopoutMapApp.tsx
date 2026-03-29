@@ -5,6 +5,7 @@ interface PopoutMapAppProps {
   roomCode: string | null;
   token: string | null;
   backendUrl: string | null;
+  appVersion: string | null;
 }
 
 /**
@@ -12,7 +13,7 @@ interface PopoutMapAppProps {
  * Spawned by the Tauri WebviewWindow with alwaysOnTop for in-game overlay debug.
  * Connects silently to the voice server to receive position broadcasts.
  */
-export function PopoutMapApp({ roomCode, token, backendUrl }: PopoutMapAppProps) {
+export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: PopoutMapAppProps) {
   const socketRef = useRef<Socket | null>(null);
   const [positions, setPositions] = useState<Record<string, any>>({});
   const [teamRosters, setTeamRosters] = useState<{ blue: string[]; red: string[] }>({ blue: [], red: [] });
@@ -28,7 +29,7 @@ export function PopoutMapApp({ roomCode, token, backendUrl }: PopoutMapAppProps)
     const normalizedUrl = backendUrl.startsWith("http") ? backendUrl : `http://${backendUrl}`;
 
     const socket = io(normalizedUrl, {
-      auth: { token },
+      auth: { token, version: appVersion },
       transports: ["websocket"],
       reconnection: true,
       reconnectionDelay: 2000,
@@ -91,25 +92,26 @@ export function PopoutMapApp({ roomCode, token, backendUrl }: PopoutMapAppProps)
       {/* Map */}
       <div className="flex-1 relative overflow-hidden m-1 rounded-lg border border-[#202225]">
         {/* Diagonal river line */}
-        <div className="absolute w-[150%] h-[1px] bg-white/5 -rotate-45 origin-left bottom-0 left-0" />
+        <div className="absolute w-[150%] h-[1px] bg-white/5 rotate-45 origin-left top-0 left-0" />
 
-        {/* Corner labels */}
-        <div className="absolute bottom-1 right-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
-        <div className="absolute top-1 left-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
+        {/* Visual labels rotated for 90° CCW logic: Blue (0,0) is now Top-Left, Red (1,1) is Bottom-Right */}
+        <div className="absolute top-1 left-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
+        <div className="absolute bottom-1 right-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
 
         {Object.entries(positions).map(([champ, pos]: [string, any]) => {
           if (pos.x < 0 || pos.y < 0) return null;
           const isBlue = pos.team === 'blue' || teamRosters.blue?.includes(champ);
           const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
           const isDead = pos.is_dead;
-          const leftPercent = (pos.x / 1000) * 100;
-          const bottomPercent = (pos.y / 1000) * 100;
+          // 90° CCW rotation: new_x = y, new_y = 100 - x
+          const leftPercent = (pos.y / 1000) * 100;
+          const bottomPercent = 100 - (pos.x / 1000) * 100;
 
           return (
             <div
               key={champ}
-              className={`absolute w-3 h-3 -mt-1.5 -mr-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} shadow-sm`}
-              style={{ right: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
+              className={`absolute w-3 h-3 -mt-1.5 -ml-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} shadow-sm`}
+              style={{ left: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
               title={`${champ} (${Math.round(pos.x)}, ${Math.round(pos.y)})`}
             >
               <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white whitespace-nowrap bg-black/80 px-1 py-0.5 rounded shadow-xl border border-white/10 z-20">

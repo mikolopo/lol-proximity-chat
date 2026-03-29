@@ -57,7 +57,7 @@ export function AddRoomModal({
             disabled={isGuest}
             className={`flex-1 py-1.5 text-sm font-bold rounded-md transition-all ${addModalTab === 'create' ? 'bg-[#4f545c] text-white shadow' : (isGuest ? 'text-[#8e9297]/50 cursor-not-allowed' : 'text-text-muted hover:text-white')}`}
             onClick={() => { if (!isGuest) setAddModalTab('create'); }}
-            title={isGuest ? "Guests cannot create rooms" : ""}
+            title={isGuest ? "You need to make an account for that!" : ""}
           >
             Create Server
           </button>

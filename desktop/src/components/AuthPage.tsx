@@ -139,9 +139,10 @@ export function AuthPage({
             <button
               type="button"
               onClick={handleGuestLogin}
-              className="w-full py-2.5 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded font-bold transition-all flex items-center justify-center shadow-lg active:transform active:scale-[0.98]"
+              className="w-full py-2.5 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded font-bold transition-all flex flex-col items-center justify-center shadow-lg active:transform active:scale-[0.98]"
             >
-              PLAY AS GUEST
+              <span>PLAY AS GUEST</span>
+              <span className="text-[10px] opacity-60 font-medium">No password required</span>
             </button>
           )}
 

@@ -45,6 +45,7 @@ interface SettingsModalProps {
   activeRoomId: string | null;
   authToken: string | null;
   backendUrl: string;
+  isGuest?: boolean;
 }
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -58,7 +59,7 @@ export function SettingsModal(props: SettingsModalProps) {
     micLevelDisplay, isMicTesting, toggleMicTest, restartMicTestIfActive,
     appVersion, isCheckingUpdate, updateStatus, checkForUpdates,
     isCV2DebugEnabled, toggleCV2Debug, triggerManualRescan,
-    activeRoomId, authToken, backendUrl,
+    activeRoomId, authToken, backendUrl, isGuest,
   } = props;
 
   return (
@@ -100,12 +101,14 @@ export function SettingsModal(props: SettingsModalProps) {
                 </div>
                 <p className="text-xs text-text-muted mt-1">Your unique LPC identifier. Used for system routing and admin verification.</p>
               </div>
-              <div className="pt-4 border-t border-[#202225]">
-                <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Password & Authentication</label>
-                <button onClick={openPasswordModal} className="px-4 py-2 bg-[#4f545c] hover:bg-[#5d6269] text-white text-sm font-medium rounded transition-colors">
-                  Change Password
-                </button>
-              </div>
+              {!isGuest && (
+                <div className="pt-4 border-t border-[#202225]">
+                  <label className="text-xs font-bold text-[#8e9297] uppercase mb-2 block">Password & Authentication</label>
+                  <button onClick={openPasswordModal} className="px-4 py-2 bg-[#4f545c] hover:bg-[#5d6269] text-white text-sm font-medium rounded transition-colors">
+                    Change Password
+                  </button>
+                </div>
+              )}
             </div>
           )}
 
@@ -230,13 +233,23 @@ export function SettingsModal(props: SettingsModalProps) {
                   onClick={async () => {
                     try {
                       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-                      new WebviewWindow('live-map-overlay', {
-                        url: `/?popout=map&room=${activeRoomId || ''}&token=${authToken || ''}&backend=${encodeURIComponent(backendUrl)}`,
+                      // Close existing overlay if it exists (handles re-click)
+                      const existing = await WebviewWindow.getByLabel('live-map-overlay');
+                      if (existing) {
+                        await existing.close();
+                        // Small delay to let the old window fully close
+                        await new Promise(r => setTimeout(r, 200));
+                      }
+                      const win = new WebviewWindow('live-map-overlay', {
+                        url: `/?popout=map&room=${activeRoomId || ''}&token=${authToken || ''}&backend=${encodeURIComponent(backendUrl)}&version=${appVersion}`,
                         title: 'LPC — Live Map Overlay',
                         width: 350,
                         height: 380,
                         alwaysOnTop: true,
                         decorations: true,
+                      });
+                      win.once('tauri://error', (e) => {
+                        console.error('Popout window error:', e);
                       });
                     } catch (e) {
                       console.error('Failed to open popout window:', e);

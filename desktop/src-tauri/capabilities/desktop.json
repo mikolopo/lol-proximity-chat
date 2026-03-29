@@ -6,9 +6,11 @@
     "linux"
   ],
   "windows": [
-    "main"
+    "main",
+    "live-map-overlay"
   ],
   "permissions": [
-    "updater:default"
+    "updater:default",
+    "core:window:allow-create"
   ]
 }

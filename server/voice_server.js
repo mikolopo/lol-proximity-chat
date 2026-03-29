@@ -142,10 +142,13 @@ const rooms = new Map();
 /** @type {Map<string, string>} sid → roomCode */
 const sidToRoom = new Map();
 
-function getRoomsList() {
+function getRoomsList(requesterUserId = null, requesterSid = null) {
     const spaceList = [];
     for (const [code, room] of rooms) {
-        if (room.isHidden) continue;
+        // Skip hidden rooms UNLESS the requester is the host OR is already in the room
+        if (room.isHidden && room.hostId !== requesterUserId && !room.players.has(requesterSid)) {
+            continue;
+        }
         spaceList.push({
             code,
             name: room.roomName,
@@ -155,6 +158,7 @@ function getRoomsList() {
             live_map_enabled: room.liveMapEnabled,
             is_locked: room.isLocked,
             has_password: !!room.password,
+            is_hidden: room.isHidden, // Pass this so UI can show a "Hidden" badge
             host_id: room.hostId,
             players: room.players.size,
             player_names: [...room.players.values()].map((p) => p.playerName),
@@ -169,7 +173,12 @@ function getRoomsList() {
 }
 
 function broadcastGlobalLobby() {
-    io.to("global_lobby").emit("available_rooms_updated", { rooms: getRoomsList() });
+    const sockets = io.sockets.sockets;
+    for (const [sid, socket] of sockets) {
+        if (socket.rooms.has("global_lobby")) {
+            socket.emit("available_rooms_updated", { rooms: getRoomsList(socket.userId, sid) });
+        }
+    }
 }
 
 
@@ -209,7 +218,7 @@ const httpServer = http.createServer((req, res) => {
 
     if (req.url === "/rooms") {
         res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ rooms: getRoomsList() }));
+        res.end(JSON.stringify({ rooms: getRoomsList() })); // Public endpoint stays truly public (no hidden)
         return;
     }
 
@@ -358,8 +367,28 @@ io.on("connection", (socket) => {
 
     socket.on("join_global_lobby", () => {
         socket.join("global_lobby");
-        socket.emit("available_rooms_updated", { rooms: getRoomsList() });
+        socket.emit("available_rooms_updated", { rooms: getRoomsList(socket.userId, socket.id) });
         log(`Client subscribed to global_lobby: ${socket.id}`);
+    });
+
+    socket.on("get_room_metadata", (data) => {
+        const roomCode = (data.room_code || "").trim().toUpperCase();
+        if (!roomCode || !rooms.has(roomCode)) {
+            socket.emit("room_metadata_error", { message: "Room not found", room_code: roomCode });
+            return;
+        }
+        const room = rooms.get(roomCode);
+        socket.emit("room_metadata", {
+            room_code: room.roomCode,
+            room_name: room.roomName,
+            room_type: room.roomType,
+            team_only: room.teamOnly,
+            dead_chat: room.deadChat,
+            is_locked: room.isLocked,
+            has_password: !!room.password,
+            host_id: room.hostId,
+            players: room.players.size
+        });
     });
 
     socket.on("create_room", (data) => {
@@ -406,12 +435,10 @@ io.on("connection", (socket) => {
             await removePlayer(socket.id);
         }
 
-        // Create room if needed
+        // Return error if room doesn't exist
         if (!rooms.has(roomCode)) {
-            const teamOnly = data.team_only || false;
-            const deadChat = data.dead_chat !== undefined ? data.dead_chat : true;
-            rooms.set(roomCode, createRoom(roomCode, socket.userId, roomType, teamOnly, deadChat));
-            log(`Room '${roomCode}' created implicitly by ${socket.username}`);
+            socket.emit("room_error", { message: "Room not found. Please create it first." });
+            return;
         }
 
         const room = rooms.get(roomCode);

@@ -67,6 +67,7 @@ class YoloMatcher:
 
         # Build reverse mapping: champion name -> (team, player_id)
         self.ally_team = ally_team
+        self.roster = locked_roster
         self.roster_lookup: Dict[str, Tuple[str, int]] = {}
         if locked_roster:
             for team in ["blue", "red"]:

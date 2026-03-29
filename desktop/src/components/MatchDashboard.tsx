@@ -54,8 +54,12 @@ export function MatchDashboard({
             {/* Live Minimap */}
             {activeRoom.live_map_enabled !== false ? (
               <div className="mb-4 aspect-square bg-[#1a1b1e] rounded-lg border border-[#202225] shadow-inner relative overflow-hidden">
-                <div className="absolute top-2 left-2 text-[10px] font-bold text-[#72767d] uppercase z-10 bg-black/60 px-1.5 py-0.5 rounded shadow">Live Map</div>
-                <div className="absolute w-[150%] h-[1px] bg-white/5 -rotate-45 origin-left bottom-0 left-0" />
+                  <div className="absolute top-2 left-2 text-[10px] font-bold text-[#72767d] uppercase z-10 bg-black/60 px-1.5 py-0.5 rounded shadow">Live Map</div>
+                {/* Visual labels rotated for 90° CCW logic: Blue (0,0) is now Top-Left, Red (1,1) is Bottom-Right */}
+                <div className="absolute top-1 left-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
+                <div className="absolute bottom-1 right-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
+                {/* River line */}
+                <div className="absolute w-[150%] h-[1px] bg-white/5 rotate-45 origin-left top-0 left-0" />
 
                 {Object.entries(serverMapData.positions || {}).map(([champ, pos]: [string, any]) => {
                   if (pos.x < 0 || pos.y < 0) return null;
@@ -63,14 +67,15 @@ export function MatchDashboard({
                   const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
                   const isActive = knownPeers.has(champ) || champ === localChampion;
                   const isDead = pos.is_dead;
-                  const leftPercent = (pos.x / 1000) * 100;
-                  const bottomPercent = (pos.y / 1000) * 100;
+                  // 90° CCW rotation: new_x = y, new_y = 100 - x
+                  const leftPercent = (pos.y / 1000) * 100;
+                  const bottomPercent = 100 - (pos.x / 1000) * 100;
 
                   return (
                     <div
                       key={champ}
-                      className={`absolute w-3 h-3 -mt-1.5 -mr-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} ${isActive ? 'ring-2 ring-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'shadow-sm'}`}
-                      style={{ right: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
+                      className={`absolute w-3 h-3 -mt-1.5 -ml-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} ${isActive ? 'ring-2 ring-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'shadow-sm'}`}
+                      style={{ left: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
                       title={`${champ} (${Math.round(pos.x)}, ${Math.round(pos.y)}) - ${pos.visibility} - ${(pos.confidence * 100).toFixed(0)}%`}
                     >
                       <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white whitespace-nowrap bg-black/80 px-1 py-0.5 rounded shadow-xl border border-white/10 z-20">
@@ -120,7 +125,16 @@ export function MatchDashboard({
                               )}
                             </div>
                           </div>
-                          <div>
+                          <div className="flex items-center gap-2">
+                            {streamingPlayers.has(champ) && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setWatchedStream(watchedStream === champ ? null : champ); }}
+                                className={`p-1 px-1.5 text-[8px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === champ ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.5)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
+                                title={watchedStream === champ ? "Stop watching" : "Watch stream"}
+                              >
+                                <Monitor size={10} /> {watchedStream === champ ? 'WATCH' : 'LIVE'}
+                              </button>
+                            )}
                             {isProvidingData ? (
                               <div className="w-3 h-3 rounded-full bg-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]" title="Providing Proximity Map Data" />
                             ) : (

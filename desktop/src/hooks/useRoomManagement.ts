@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { Socket } from "socket.io-client";
 import type { RoomInfo, RoomContextMenuState, ContextMenuState, ProfilePopupState } from "../types";
 import type { VoiceManager } from "../voice/VoiceManager";
@@ -35,6 +35,45 @@ export function useRoomManagement(
   const [newRoomPassword, setNewRoomPassword] = useState("");
   const [showPasswordJoin, setShowPasswordJoin] = useState<{ roomCode: string } | null>(null);
   const [joinRoomPassword, setJoinRoomPassword] = useState("");
+  
+  useEffect(() => {
+    const socket = globalSocketRef.current;
+    if (!socket) return;
+
+    const onCreated = (data: { room_code: string; room_name: string }) => {
+      setPreviewRoom({ 
+        id: data.room_code, 
+        name: data.room_name, 
+        mode: newRoomMode // Best guess from current UI state
+      });
+    };
+
+    const onMetadata = (data: any) => {
+      setPreviewRoom({
+        id: data.room_code,
+        name: data.room_name,
+        mode: data.room_type === 'proximity' ? 'proximity' : (data.team_only ? 'team' : 'global'),
+        host_id: data.host_id,
+        is_locked: data.is_locked,
+        has_password: data.has_password,
+      });
+    };
+
+    const onMetadataError = (data: any) => {
+      console.error("Room metadata error:", data.message);
+      alert(`Could not find room: ${data.room_code}`);
+    };
+
+    socket.on("room_created_success", onCreated);
+    socket.on("room_metadata", onMetadata);
+    socket.on("room_metadata_error", onMetadataError);
+
+    return () => {
+      socket.off("room_created_success", onCreated);
+      socket.off("room_metadata", onMetadata);
+      socket.off("room_metadata_error", onMetadataError);
+    };
+  }, [globalSocketRef.current, newRoomMode]);
 
   const submitAddRoom = useCallback((e: React.FormEvent) => {
     e.preventDefault();
@@ -43,7 +82,13 @@ export function useRoomManagement(
       if (addModalTab === 'join') {
         const cleanRoom = newRoomInput.trim().toUpperCase();
         if (!cleanRoom) return;
-        setPreviewRoom({ id: cleanRoom, mode: 'proximity' });
+        
+        const existing = rooms.find(r => r.id === cleanRoom);
+        if (existing) {
+          setPreviewRoom(existing);
+        } else {
+          globalSocketRef.current?.emit("get_room_metadata", { room_code: cleanRoom });
+        }
       } else {
         const cleanName = newRoomName.trim();
         if (!cleanName) return;

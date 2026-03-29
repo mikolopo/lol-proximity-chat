@@ -225,8 +225,16 @@ export function useVoiceConnection(
             } else {
               setStreamingPlayers(prev => { const next = new Set(prev); next.delete(idToUse); return next; });
               setCurrentStream(prev => prev?.name === data.player_name ? null : prev);
-              if (watchedStreamRef.current === idToUse) setWatchedStream(null);
+            if (watchedStreamRef.current === idToUse) setWatchedStream(null);
             }
+          } else if (event === 'kicked_from_room') {
+            setLogs(l => [...l.slice(-50), `[SERVER] Kicked from room (or room was deleted)`]);
+            setIsConnected(false);
+            setActiveRoom(null);
+            setKnownPeers(new Set());
+            setPeerChampions({});
+            setStreamingPlayers(new Set());
+            voiceManagerRef.current?.disconnect();
           } else if (event === 'room_settings_updated') {
             setActiveRoom((prev: any) => {
               if (!prev) return prev;
