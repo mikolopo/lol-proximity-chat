@@ -1,4 +1,4 @@
-# LoL Proximity Chat — Technical Overview
+# League of Legends Proximity Chat — Technical Overview
 
 **LoL Proximity Chat** is a distributed real-time voice communication system for League of Legends that utilizes computer vision to achieve spatial audio immersion.
 

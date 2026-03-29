@@ -1,6 +1,8 @@
+# League Of Legends Proximity Chat
 
+LoL Proximity Chat is a high-performance spatial audio system that enhances your League of Legends experience by mapping the voices of your teammates to their in-game positions on the Rift.
 
-##  How It Works - or doesn't 
+##  How It Works
 
 1.  **Minimap Capture:** The app captures *only* the bottom-right corner of your screen (where the minimap lives) using high-speed screen capture (`mss`).
 2.  **AI Detection:** A Python-based sidecar runs a YOLOv8 model on the capture to identify champion positions.
@@ -65,7 +67,7 @@ To host, you just need to run the relay server on your computer. Choose the meth
 ##  Pro Tips for a Smooth Game
 
 *   **Use Borderless Mode:** Run League in **"Borderless"** window mode (Settings > Video). This helps the app see the minimap much better than "Full Screen".
-*   **Stuck Icons?** If someone's voice seems "stuck" in the wrong place, click the **"Manual Rescan"** button in the app.
+*   **Stuck Icons?** If someone's voice seems "stuck" in the wrong place, click the **"Manual Rescan"** button in the app to reload map detection.
 *   **Silence the Keyboard:** Turn on **RNNoise** in the audio settings to block out your mechanical keyboard clicks automatically!
 *   **Room Security:** If you don't want random people joining, make sure to set a **Password** when creating your room.
 
@@ -92,7 +94,6 @@ To host, you just need to run the relay server on your computer. Choose the meth
 
 ---
 
-
 ```bash
 ├── client/      # Python Sidecar (Screen capture, YOLO detection, API)
 ├── desktop/     # Tauri + React application (UI and Audio Pipeline)
@@ -105,3 +106,6 @@ To host, you just need to run the relay server on your computer. Choose the meth
 ##  Disclaimer
 
 **LoL Proximity Chat** is a third-party tool. While it only reads the minimap pixels and official Riot APIs (LCU/Live Game API), use it at your own risk. We are not responsible for any actions taken by Riot Games (Vanguard/Account Bans). We strive to stay within the bounds of "fair play" by only using information visible to the player.
+
+
+please let me out
