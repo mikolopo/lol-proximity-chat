@@ -308,7 +308,10 @@ export function useVoiceConnection(
     setActiveSpeakers(new Set());
     setCurrentStream(null);
     setWatchedStream(null);
-    setLogs(l => [...l.slice(-50), "[UI] Disconnected from Voice Room."]);
+    setPeerChampions({});
+    setServerMapData(null);
+    setLocalChampion("");
+    setLogs(l => [...l.slice(-50), "[UI] Disconnected from Voice Room. State purged."]);
   }, [isStreaming, setWatchedStream]);
 
   return {

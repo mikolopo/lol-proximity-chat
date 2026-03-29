@@ -36,6 +36,9 @@ class IPC_VoiceClientStub:
 
     def update_all_positions(self, positions_dict, dead_players):
         send_event("positions", positions_dict)
+    
+    def report_minimap_lock(self, found, score):
+        send_event("minimap_lock", {"status": "found" if found else "failed", "score": score})
 
     def send_stream_frame(self, frame, width, height):
         send_event("stream_frame", {"frame": frame, "width": width, "height": height})

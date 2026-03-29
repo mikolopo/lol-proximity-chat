@@ -29,6 +29,7 @@ import { PasswordSetupModal } from "./components/modals/PasswordSetupModal";
 import { PasswordJoinModal } from "./components/modals/PasswordJoinModal";
 import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 import { PopoutMapApp } from "./components/PopoutMapApp";
+import { ToastContainer, type ToastType } from "./components/Toast";
 
 function App() {
   // ─── Popout Routing ───
@@ -50,6 +51,16 @@ function App() {
 
   // Stable ref that stays in sync with the WebSocket hook's socket
   const globalSocketRef = useRef<Socket | null>(null);
+
+  // ─── Toasts ───
+  const [toasts, setToasts] = useState<{ id: string; message: string; type: ToastType }[]>([]);
+  const showToast = (message: string, type: ToastType) => {
+    const id = Math.random().toString(36).substring(2, 9);
+    setToasts(prev => [...prev, { id, message, type }]);
+  };
+  const removeToast = (id: string) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
+  };
 
   // ─── Auth ───
   const auth = useAuth(backendUrl);
@@ -85,6 +96,7 @@ function App() {
     setLocalChampion: voice.setLocalChampion,
     setCurrentStream: voice.setCurrentStream,
     setIsStreaming: voice.setIsStreaming,
+    showToast,
   });
 
   // ─── Audio Settings ───
@@ -235,6 +247,7 @@ function App() {
       className="flex h-screen w-full bg-bg-tertiary text-text-normal overflow-hidden font-sans relative"
       onClick={() => { if (rooms.contextMenu) rooms.setContextMenu(null); if (rooms.profilePopup) rooms.setProfilePopup(null); }}
     >
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
       {/* Modals */}
       {rooms.showStreamPickerModal && (
         <StreamPickerModal

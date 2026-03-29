@@ -9,6 +9,7 @@ interface UseSidecarOptions {
   setLocalChampion: (champ: string) => void;
   setCurrentStream: React.Dispatch<React.SetStateAction<{ name: string; frame: string; width: number; height: number } | null>>;
   setIsStreaming: React.Dispatch<React.SetStateAction<boolean>>;
+  showToast: (msg: string, type: 'success' | 'error' | 'info') => void;
 }
 
 /** Python sidecar lifecycle, IPC event routing, detection & streaming commands. */
@@ -19,6 +20,7 @@ export function useSidecar({
   setLocalChampion,
   setCurrentStream,
   setIsStreaming,
+  showToast,
 }: UseSidecarOptions) {
   const sidecarChildRef = useRef<any>(null);
   const [isDetecting, setIsDetecting] = useState(false);
@@ -65,9 +67,12 @@ export function useSidecar({
               const champName = event.data?.player_name;
               const roster = event.data?.roster;
 
-              if (phase === 'lobby') {
+              if (phase === 'lobby' || phase === 'standby') {
                 setLocalChampion("");
-                if (voiceManagerRef.current) voiceManagerRef.current.setChampionName("");
+                if (voiceManagerRef.current) {
+                  voiceManagerRef.current.setChampionName("");
+                  voiceManagerRef.current.updatePositions({});
+                }
               }
               if (champName !== undefined && champName !== "") {
                 setLocalChampion(champName);
@@ -89,6 +94,15 @@ export function useSidecar({
               setLogs(l => [...l.slice(-50), `[UI] Stream auto-stopped (source closed)`]);
             } else if (event.type === 'capture_sources') {
               setCaptureSources(event.data || []);
+            } else if (event.type === 'minimap_lock') {
+              const { status, score } = event.data;
+              if (status === 'found') {
+                showToast(`Minimap Locked! (Confidence: ${(score * 100).toFixed(0)}%)`, 'success');
+                setIsDetecting(true);
+              } else {
+                // Only show failure if it was a manual rescan or first attempt
+                // (Optional: don't spam if it's just background polling)
+              }
             } else if (event.type === 'log') {
               setLogs(l => [...l.slice(-50), `[PYTHON LOG] ${event.data.message}`]);
             } else {

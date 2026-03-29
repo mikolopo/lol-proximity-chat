@@ -67,11 +67,11 @@ class YoloMatcher:
 
         # Build reverse mapping: champion name -> (team, player_id)
         self.ally_team = ally_team
-        self.roster = locked_roster
+        self.roster = locked_roster or {}
         self.roster_lookup: Dict[str, Tuple[str, int]] = {}
-        if locked_roster:
+        if self.roster:
             for team in ["blue", "red"]:
-                for idx, champ_name in enumerate(locked_roster.get(team, [])):
+                for idx, champ_name in enumerate(self.roster.get(team, [])):
                     self.roster_lookup[champ_name] = (team, idx + 1)
 
         self.last_known_ally_positions: Dict[str, Tuple[float, float]] = {}
@@ -157,9 +157,11 @@ class YoloMatcher:
 
             cx = (bx1 + bx2) / 2.0
             cy = (by1 + by2) / 2.0
+            # Origin (0,0) is TOP-LEFT in OpenCV.
+            # We want (0,0) to be BOTTOM-LEFT (League standard for proximity plots).
             x_norm = cx / orig_w
-            y_norm = cy / orig_h
-
+            y_norm = 1.0 - (cy / orig_h) # INVERT Y
+            
             if team == self.ally_team:
                 self.last_known_ally_positions[champ_name] = (x_norm, y_norm)
 

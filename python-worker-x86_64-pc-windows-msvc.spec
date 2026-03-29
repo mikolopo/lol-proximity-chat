@@ -5,7 +5,7 @@ a = Analysis(
     ['client\\detection\\ipc_worker.py'],
     pathex=['.'],
     binaries=[],
-    datas=[('client\\detection\\assets\\yolo\\best.onnx', 'client\\detection\\assets\\yolo'), ('client\\detection\\assets\\yolo\\champMap.json', 'client\\detection\\assets\\yolo'), ('client\\capture\\assets\\anchor_whole_L.png', 'client\\capture\\assets'), ('client\\capture\\assets\\anchor_whole_R.png', 'client\\capture\\assets')],
+    datas=[('client/detection/assets/yolo/best.onnx', 'client/detection/assets/yolo'), ('client/detection/assets/yolo/champMap.json', 'client/detection/assets/yolo'), ('client/capture/assets/anchor_whole_L.png', 'client/capture/assets'), ('client/capture/assets/anchor_whole_R.png', 'client/capture/assets')],
     hiddenimports=['client', 'client.capture', 'client.capture.screen_capture', 'client.capture.live_client_api', 'client.capture.lcu_connector', 'client.detection', 'client.detection.worker', 'client.detection.yolo_matcher'],
     hookspath=[],
     hooksconfig={},

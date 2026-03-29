@@ -39,8 +39,8 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
     socket.on("connect", () => {
       setConnected(true);
       setError(null);
-      // Join the room as a silent observer by joining the global lobby
-      socket.emit("join_global_lobby");
+      // Join the room as a silent observer for map data
+      socket.emit("join_room_observer", { room_code: roomCode });
     });
 
     socket.on("connect_error", (err) => {
@@ -114,8 +114,9 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
               style={{ left: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
               title={`${champ} (${Math.round(pos.x)}, ${Math.round(pos.y)})`}
             >
-              <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white whitespace-nowrap bg-black/80 px-1 py-0.5 rounded shadow-xl border border-white/10 z-20">
-                {champ.substring(0, 3)}
+              <div className="absolute -top-7 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white whitespace-nowrap bg-black/90 px-1 py-0.5 rounded shadow-xl border border-white/10 z-20 flex flex-col items-center">
+                <span>{champ.substring(0, 3)}</span>
+                <span className="text-[7px] text-white/60 font-mono">({Math.round(pos.x)},{Math.round(pos.y)})</span>
               </div>
             </div>
           );

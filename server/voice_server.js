@@ -370,6 +370,29 @@ io.on("connection", (socket) => {
         await removePlayer(socket.id);
     });
 
+    socket.on("join_room_observer", (data) => {
+        const roomCode = (data.room_code || "").trim().toUpperCase();
+        if (rooms.has(roomCode)) {
+            const room = rooms.get(roomCode);
+            socket.join(roomCode);
+            
+            // Send initial state immediately so the popout isn't empty
+            const positions = {};
+            for (const [champName, mp] of room.mergedPositions) {
+                positions[champName] = {
+                    x: mp.x, y: mp.y, is_dead: mp.isDead,
+                    visibility: mp.visibility, team: mp.team
+                };
+            }
+            socket.emit("player_positions", { 
+                positions, 
+                team_rosters: room.teamRosters,
+                game_phase: room.gamePhase 
+            });
+            log(`Socket ${socket.id} joined room '${roomCode}' as observer`);
+        }
+    });
+
     socket.on("join_global_lobby", () => {
         socket.join("global_lobby");
         socket.emit("available_rooms_updated", { rooms: getRoomsList(socket.userId, socket.id) });

@@ -98,7 +98,8 @@ def compute_minimap_roi(
                             alpha = anchor_img_bgra[:, :, 3]
                             a_mask = cv2.bitwise_and(a_mask, alpha)
                             
-                        for scale in np.linspace(0.4, 1.6, 13):
+                        # Increase granularity (25 steps instead of 13) to better handle custom UI scales
+                        for scale in np.linspace(0.4, 1.6, 25):
                             scaled_w = int(a_img.shape[1] * scale)
                             scaled_h = int(a_img.shape[0] * scale)
                             if scaled_w < 50 or scaled_h < 50:
@@ -125,21 +126,21 @@ def compute_minimap_roi(
                         abs_left = half_rect["left"] + ax
                         abs_top  = half_rect["top"] + ay
                         
-                        print(f"[MinimapROI] Anchor matched (score={best_overall_val:.3f}, scale={best_overall_scale:.2f})")
+                        print(f"[MinimapROI] Anchor matched OK (score={best_overall_val:.3f}, scale={best_overall_scale:.2f})")
                         return {
                             "left": abs_left,
                             "top": abs_top,
                             "width": int(best_anchor_shape[1] * best_overall_scale),
                             "height": int(best_anchor_shape[0] * best_overall_scale),
-                        }, True
+                        }, True, best_overall_val
                     else:
-                        print(f"[MinimapROI] Best anchor match too low: {best_overall_val:.3f}")
+                        print(f"[MinimapROI] Anchor match FAILED (best score {best_overall_val:.3f} < 0.60 threshold)")
             except Exception as e:
                 print(f"[MinimapROI] Error during anchor matching: {e}")
 
     # Fallback
     print(f"[MinimapROI] Using fallback ROI (no anchor match)")
-    return fallback_roi, False
+    return fallback_roi, False, 0.0
 
 
 class MinimapCapture:
@@ -151,6 +152,7 @@ class MinimapCapture:
         self._hwnd: Optional[int] = None
         self._roi: Optional[dict] = None
         self._anchor_found: bool = False
+        self._last_score: float = 0.0
         self._last_anchor_attempt: float = 0.0
         self._latest_frame: Optional[np.ndarray] = None
         self._lock = threading.Lock()
@@ -159,39 +161,45 @@ class MinimapCapture:
 
     # ── public API ──────────────────────────────────────────────────────────
 
-    def connect(self) -> bool:
+    def connect(self) -> Tuple[bool, float]:
         self._hwnd = find_lol_window()
         if self._hwnd is None:
-            return False
+            return False, 0.0
 
         # Don't attempt anchor matching if LoL is minimized — mss would capture
         # the wrong thing.  But don't block other processes from continuing.
         if win32gui.IsIconic(self._hwnd):
             print("[MinimapCapture] LoL window is minimized — skipping anchor match")
-            return False
+            return False, 0.0
 
         # If LoL isn't in the foreground we can still try, but warn.
         foreground = win32gui.GetForegroundWindow()
         if foreground != self._hwnd:
             print("[MinimapCapture] LoL is not in the foreground — skipping anchor match (alt-tabbed?)")
-            return False
+            return False, 0.0
 
         rect = get_window_rect(self._hwnd)
         if not rect or len(rect) < 4:
-            return False
+            return False, 0.0
         
-        self._roi, self._anchor_found = compute_minimap_roi(rect[0], rect[1], rect[2], rect[3], self.anchor_dir)
+        self._roi, self._anchor_found, self._last_score = compute_minimap_roi(rect[0], rect[1], rect[2], rect[3], self.anchor_dir)
         self._last_anchor_attempt = time.time()
         
         if self._anchor_found:
-            print(f"[MinimapCapture] Minimap ROI locked via anchor: {self._roi}")
-        return self._anchor_found
+            print(f"[MinimapCapture] Minimap ROI locked via anchor: {self._roi} (score={self._last_score:.3f})")
+        return self._anchor_found, self._last_score
 
     def set_custom_roi(self, left: int, top: int, width: int, height: int):
         """Override the auto-detected ROI with a manually calibrated region."""
         self._roi = {"left": left, "top": top, "width": width, "height": height}
         self._anchor_found = True  # Treat manual override as locked
         print(f"[MinimapCapture] Custom ROI set: {self._roi}")
+
+    def reset_lock(self):
+        """Force re-acquisition of the window and minimap ROI on the next loop tick."""
+        self._anchor_found = False
+        self._hwnd = None
+        print("[MinimapCapture] Lock reset requested.")
 
     def start(self):
         """Start the background capture thread."""

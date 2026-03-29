@@ -143,6 +143,8 @@ class DetectionWorker(threading.Thread):
             # ── Phase 4: Game ended — reset everything ──
             print("[DetectionWorker] Game ended. Resetting state...")
             self.voice_client.reset_game_state()
+            if self.cap:
+                self.cap.reset_lock() # Force re-lock for next game
             self.matcher = None
             self.local_player_champ = None
 
@@ -258,7 +260,22 @@ class DetectionWorker(threading.Thread):
         """Run the active minimap detection loop until the game ends."""
         # Lock minimap
         print("[DetectionWorker] Waiting for minimap lock (LoL must be in the foreground)...")
-        while self.running and not self.cap.connect():
+        fail_count = 0
+        while self.running:
+            found, score = self.cap.connect()
+            if found:
+                self.voice_client.report_minimap_lock(True, score)
+                break
+            
+            fail_count += 1
+            if fail_count >= 3:
+                print(f"[DetectionWorker] Connection failed {fail_count} times. Forcing a full rescan...")
+                self.cap.reset_lock()
+                fail_count = 0 # Reset to try 3 more times after fresh lock
+            
+            # Send periodic failed status
+            self.voice_client.report_minimap_lock(False, score)
+            
             time.sleep(3)
             if not self.live.is_available():
                 print("[DetectionWorker] Game ended while waiting for minimap.")
@@ -325,10 +342,11 @@ class DetectionWorker(threading.Thread):
                             
                             # Determine color based on team (using roster consensus from matcher)
                             color = (128, 128, 128) # Default gray
-                            if self.matcher and self.matcher.roster:
-                                if det.name in self.matcher.roster.get("blue", []):
+                            matcher_roster = getattr(self.matcher, 'roster', None)
+                            if matcher_roster:
+                                if det.name in matcher_roster.get("blue", []):
                                     color = (255, 100, 100) # Blue (BGR)
-                                elif det.name in self.matcher.roster.get("red", []):
+                                elif det.name in matcher_roster.get("red", []):
                                     color = (100, 100, 255) # Red (BGR)
                             
                             cv2.circle(debug_map, (map_x, map_y), 5, color, -1)
@@ -425,5 +443,7 @@ class DetectionWorker(threading.Thread):
         """Force the detection loop to re-poll state/roster and re-lock coordinates on next tick."""
         print("[DetectionWorker] Manual rescan triggered. Unlocking minimap...")
         self.rescan_triggered = True
-        self.cap.connected = False # Forces re-acquisition of the game window
+        if self.cap:
+            # Use the new helper to clear window handle and ROI
+            self.cap.reset_lock()
 
