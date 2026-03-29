@@ -340,6 +340,7 @@ export class VoiceManager {
       if (data.team_only !== undefined) this.roomTeamOnly = data.team_only;
       if (data.dead_chat !== undefined) this.roomDeadChat = data.dead_chat;
       this.recalcAllVolumes();
+      if (onRoomEvent) onRoomEvent("room_settings_updated", data);
     });
 
     this.socket.on("player_joined", (data: any) => {

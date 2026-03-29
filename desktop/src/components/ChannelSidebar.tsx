@@ -1,4 +1,4 @@
-import { Headphones, X, Mic, MicOff, Monitor, Settings, Crown } from "lucide-react";
+import { Headphones, Mic, MicOff, Monitor, Settings, Crown, Signal, PhoneOff } from "lucide-react";
 import type { RoomInfo } from "../types";
 import { champImgUrl } from "../utils/audio";
 
@@ -64,11 +64,6 @@ export function ChannelSidebar({
                 <span className={`font-semibold text-[15px] flex gap-2 items-center ${activeRoom?.id === previewRoom.id ? 'text-white' : 'text-[#8e9297] hover:text-[#dcddde]'}`}>
                   <Headphones size={18} /> Global Proximity
                 </span>
-                {activeRoom?.id === previewRoom.id && (
-                  <button onClick={(e) => { e.stopPropagation(); handleDisconnect(); }} className="text-[#8e9297] hover:text-[#ed4245]" title="Disconnect">
-                    <X size={16} />
-                  </button>
-                )}
               </div>
 
               {activeRoom?.id === previewRoom.id && isConnected && (
@@ -114,33 +109,56 @@ export function ChannelSidebar({
         )}
       </div>
 
-      {/* User controls */}
-      <div className="h-[52px] bg-[#292b2f] flex items-center px-2 py-1.5 gap-2 mt-auto">
-        <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0 text-white font-bold text-xs shadow-sm uppercase overflow-hidden">
-          {localChampion ? <img src={champImgUrl(localChampion)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = playerName.substring(0, 2); }} /> : playerName.substring(0, 2)}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-white truncate leading-tight">{playerName}</div>
-          <div className="text-xs text-[#8e9297] truncate leading-tight">
-            {isDeafened ? 'Deafened' : (isMicMuted ? 'Muted' : (isConnected ? 'Voice Connected' : 'Online'))}
+      {/* Voice Connection & User controls */}
+      <div className="mt-auto flex flex-col bg-[#292b2f]">
+        {isConnected && activeRoom && (
+           <div className="border-b border-[#202225] py-2 px-2 flex items-center shadow-[0_-1px_2px_rgba(0,0,0,0.1)]">
+             <div className="flex flex-col flex-1 min-w-0 pr-2 cursor-pointer group">
+               <div className="flex items-center gap-1.5 text-[#3ba55c] font-bold text-[11px] uppercase group-hover:underline">
+                 <Signal size={12} strokeWidth={3} />
+                 <span>Voice Connected</span>
+               </div>
+               <div className="text-[#8e9297] text-xs truncate group-hover:underline">
+                 {activeRoom.name || activeRoom.id}
+               </div>
+             </div>
+             <button 
+               onClick={handleDisconnect} 
+               className="w-8 h-8 rounded shrink-0 flex items-center justify-center text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde] transition-colors"
+               title="Disconnect"
+             >
+               <PhoneOff size={18} />
+             </button>
+           </div>
+        )}
+        
+        <div className="h-[52px] flex items-center px-2 py-1.5 gap-2">
+          <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0 text-white font-bold text-xs shadow-sm uppercase overflow-hidden">
+            {localChampion ? <img src={champImgUrl(localChampion)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = playerName.substring(0, 2); }} /> : playerName.substring(0, 2)}
           </div>
-        </div>
-        <div className="flex gap-1">
-          <button onClick={toggleMic} className={`p-1.5 rounded transition-colors group relative ${isMicMuted || isDeafened ? 'text-[#ed4245]' : 'text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde]'}`}>
-            <Mic size={18} />
-            {(isMicMuted || isDeafened) && <div className="absolute w-[22px] h-0.5 bg-[#ed4245] rotate-45 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded" />}
-          </button>
-          <button onClick={toggleDeafen} className={`p-1.5 rounded transition-colors group relative ${isDeafened ? 'text-[#ed4245]' : 'text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde]'}`}>
-            <Headphones size={18} />
-            {isDeafened && <div className="absolute w-[22px] h-0.5 bg-[#ed4245] rotate-45 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded" />}
-          </button>
-          <button onClick={toggleStreaming} className={`p-1.5 rounded transition-colors group relative ${isStreaming ? 'text-accent' : 'text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde]'}`} title={isStreaming ? "Stop Streaming" : "Stream Screen"}>
-            <Monitor size={18} />
-            {isStreaming && <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#ed4245] rounded-full border-2 border-[#2f3136]" />}
-          </button>
-          <button onClick={() => setShowSettingsModal(true)} className="p-1.5 text-[#b9bbbe] hover:text-[#dcddde] hover:bg-[#34373c] rounded transition-colors">
-            <Settings size={18} />
-          </button>
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-semibold text-white truncate leading-tight">{playerName}</div>
+            <div className="text-xs text-[#8e9297] truncate leading-tight">
+              {isDeafened ? 'Deafened' : (isMicMuted ? 'Muted' : (isConnected ? 'Voice Connected' : 'Online'))}
+            </div>
+          </div>
+          <div className="flex gap-1">
+            <button onClick={toggleMic} className={`p-1.5 rounded transition-colors group relative ${isMicMuted || isDeafened ? 'text-[#ed4245]' : 'text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde]'}`}>
+              <Mic size={18} />
+              {(isMicMuted || isDeafened) && <div className="absolute w-[22px] h-0.5 bg-[#ed4245] rotate-45 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded" />}
+            </button>
+            <button onClick={toggleDeafen} className={`p-1.5 rounded transition-colors group relative ${isDeafened ? 'text-[#ed4245]' : 'text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde]'}`}>
+              <Headphones size={18} />
+              {isDeafened && <div className="absolute w-[22px] h-0.5 bg-[#ed4245] rotate-45 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded" />}
+            </button>
+            <button onClick={toggleStreaming} className={`p-1.5 rounded transition-colors group relative ${isStreaming ? 'text-accent' : 'text-[#b9bbbe] hover:bg-[#34373c] hover:text-[#dcddde]'}`} title={isStreaming ? "Stop Streaming" : "Stream Screen"}>
+              <Monitor size={18} />
+              {isStreaming && <div className="absolute -top-1 -right-1 w-2 h-2 bg-[#ed4245] rounded-full border-2 border-[#2f3136]" />}
+            </button>
+            <button onClick={() => setShowSettingsModal(true)} className="p-1.5 text-[#b9bbbe] hover:text-[#dcddde] hover:bg-[#34373c] rounded transition-colors">
+              <Settings size={18} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

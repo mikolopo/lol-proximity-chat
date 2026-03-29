@@ -7,6 +7,7 @@ export interface RoomInfo {
   host_id?: string;
   is_locked?: boolean;
   has_password?: boolean;
+  live_map_enabled?: boolean;
   players_data?: PlayerData[];
   password?: string;
 }

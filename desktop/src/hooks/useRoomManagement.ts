@@ -126,6 +126,12 @@ export function useRoomManagement(
     setRoomContextMenu(null);
   }, []);
 
+  const toggleLiveMap = useCallback((enabled: boolean) => {
+    if (voiceManagerRef.current?.socket) {
+      voiceManagerRef.current.socket.emit("update_room_settings", { live_map_enabled: enabled });
+    }
+  }, []);
+
   return {
     rooms, setRooms, activeRoom, setActiveRoom, previewRoom, setPreviewRoom,
     hoveredRoom, setHoveredRoom, roomMembers, setRoomMembers,
@@ -146,6 +152,6 @@ export function useRoomManagement(
     showPasswordJoin, setShowPasswordJoin, joinRoomPassword, setJoinRoomPassword,
     // Handlers
     submitAddRoom, handleRoomContextMenu, handleToggleLock, handleRemovePassword,
-    handleDeleteRoom, handleKickPlayer, handleContextMenu, setRoomPassword,
+    handleDeleteRoom, handleKickPlayer, handleContextMenu, setRoomPassword, toggleLiveMap,
   };
 }

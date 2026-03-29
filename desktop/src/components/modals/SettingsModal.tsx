@@ -41,6 +41,10 @@ interface SettingsModalProps {
   isCV2DebugEnabled: boolean;
   toggleCV2Debug: () => void;
   triggerManualRescan: () => void;
+  // Pop-out map
+  activeRoomId: string | null;
+  authToken: string | null;
+  backendUrl: string;
 }
 
 export function SettingsModal(props: SettingsModalProps) {
@@ -54,6 +58,7 @@ export function SettingsModal(props: SettingsModalProps) {
     micLevelDisplay, isMicTesting, toggleMicTest, restartMicTestIfActive,
     appVersion, isCheckingUpdate, updateStatus, checkForUpdates,
     isCV2DebugEnabled, toggleCV2Debug, triggerManualRescan,
+    activeRoomId, authToken, backendUrl,
   } = props;
 
   return (
@@ -218,6 +223,31 @@ export function SettingsModal(props: SettingsModalProps) {
                   </button>
                   <p className="text-xs text-text-muted mt-2">Force the sidecar to re-check the live game roster and mini-map anchor points immediately.</p>
                 </div>
+              </div>
+              <div className="pt-4 border-t border-[#202225]">
+                <h3 className="text-[#dcddde] font-semibold mb-4">Live Map Overlay</h3>
+                <button
+                  onClick={async () => {
+                    try {
+                      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+                      new WebviewWindow('live-map-overlay', {
+                        url: `/?popout=map&room=${activeRoomId || ''}&token=${authToken || ''}&backend=${encodeURIComponent(backendUrl)}`,
+                        title: 'LPC — Live Map Overlay',
+                        width: 350,
+                        height: 380,
+                        alwaysOnTop: true,
+                        decorations: true,
+                      });
+                    } catch (e) {
+                      console.error('Failed to open popout window:', e);
+                    }
+                  }}
+                  disabled={!activeRoomId}
+                  className="w-full py-2.5 rounded text-[14px] font-medium bg-[#4f545c] text-white hover:bg-[#5d6269] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {activeRoomId ? 'Pop-out Live Map' : 'Join a Room First'}
+                </button>
+                <p className="text-xs text-text-muted mt-2">Opens an always-on-top minimap window for in-game position debugging.</p>
               </div>
             </>
           )}

@@ -28,8 +28,21 @@ import { StreamPickerModal } from "./components/modals/StreamPickerModal";
 import { PasswordSetupModal } from "./components/modals/PasswordSetupModal";
 import { PasswordJoinModal } from "./components/modals/PasswordJoinModal";
 import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
+import { PopoutMapApp } from "./components/PopoutMapApp";
 
 function App() {
+  // ─── Popout Routing ───
+  if (window.location.search.includes('popout=map')) {
+    const params = new URLSearchParams(window.location.search);
+    return (
+      <PopoutMapApp
+        roomCode={params.get('room')}
+        token={params.get('token')}
+        backendUrl={params.get('backend')}
+      />
+    );
+  }
+
   // ─── Backend URL (persisted) ───
   const [backendUrl, _setBackendUrl] = useState(localStorage.getItem('lpc_backendUrl') || "http://localhost:8080");
   const setBackendUrl = (v: string) => { _setBackendUrl(v); localStorage.setItem('lpc_backendUrl', v); };
@@ -253,6 +266,7 @@ function App() {
           updateStatus={updater.updateStatus} checkForUpdates={updater.checkForUpdates}
           isCV2DebugEnabled={sidecar.isCV2DebugEnabled} toggleCV2Debug={sidecar.toggleCV2Debug}
           triggerManualRescan={sidecar.triggerManualRescan}
+          activeRoomId={rooms.activeRoom?.id || null} authToken={auth.authToken} backendUrl={backendUrl}
         />
       )}
       {auth.showPasswordModal && (
@@ -301,6 +315,7 @@ function App() {
             isStreaming={voice.isStreaming} streamingPlayers={voice.streamingPlayers}
             watchedStream={voice.watchedStream} setWatchedStream={voice.setWatchedStream}
             setProfilePopup={rooms.setProfilePopup} handleContextMenu={rooms.handleContextMenu}
+            toggleLiveMap={rooms.toggleLiveMap}
           />
         )}
       </div>

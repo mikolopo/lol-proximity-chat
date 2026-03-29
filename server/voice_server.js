@@ -123,6 +123,7 @@ function createRoom(roomCode, hostId, roomType = ROOM_TYPE_PROXIMITY, teamOnly =
         roomType,
         teamOnly,
         deadChat,
+        liveMapEnabled: true,
         gamePhase: PHASE_IN_GAME,
         players: new Map(),
         mergedPositions: new Map(),
@@ -151,6 +152,7 @@ function getRoomsList() {
             type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
+            live_map_enabled: room.liveMapEnabled,
             is_locked: room.isLocked,
             has_password: !!room.password,
             host_id: room.hostId,
@@ -334,6 +336,7 @@ function broadcastRoomState(roomCode) {
         room_type: room.roomType,
         team_only: room.teamOnly,
         dead_chat: room.deadChat,
+        live_map_enabled: room.liveMapEnabled,
         game_phase: room.gamePhase,
         host_id: room.hostId,
         is_locked: room.isLocked,
@@ -456,6 +459,7 @@ io.on("connection", (socket) => {
             room_type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
+            live_map_enabled: room.liveMapEnabled,
             game_phase: room.gamePhase,
             host_id: room.hostId,
             team_rosters: room.teamRosters,
@@ -595,6 +599,7 @@ io.on("connection", (socket) => {
         }
         if (data.team_only !== undefined) room.teamOnly = Boolean(data.team_only);
         if (data.dead_chat !== undefined) room.deadChat = Boolean(data.dead_chat);
+        if (data.live_map_enabled !== undefined) room.liveMapEnabled = Boolean(data.live_map_enabled);
         if (data.room_name !== undefined) room.roomName = String(data.room_name).slice(0, 32);
 
         log(`Room '${roomCode}' settings updated by Host`);
@@ -605,6 +610,7 @@ io.on("connection", (socket) => {
             room_type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
+            live_map_enabled: room.liveMapEnabled,
         });
         broadcastGlobalLobby(); // Update room list for global observers
     });

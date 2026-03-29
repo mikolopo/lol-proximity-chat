@@ -196,7 +196,7 @@ export function useVoiceConnection(
           } else if (event === 'player_positions') {
             setServerMapData(data);
           } else if (event === 'room_state') {
-            setActiveRoom((prev: any) => prev ? { ...prev, host_id: data.host_id, players_data: data.players } : null);
+            setActiveRoom((prev: any) => prev ? { ...prev, host_id: data.host_id, players_data: data.players, live_map_enabled: data.live_map_enabled } : null);
             const players = data.players || [];
             const ids = players.map((p: any) => p.user_id?.toString() || p.name);
             setKnownPeers(new Set(ids.filter((id: string) => id !== userId)));
@@ -227,6 +227,13 @@ export function useVoiceConnection(
               setCurrentStream(prev => prev?.name === data.player_name ? null : prev);
               if (watchedStreamRef.current === idToUse) setWatchedStream(null);
             }
+          } else if (event === 'room_settings_updated') {
+            setActiveRoom((prev: any) => {
+              if (!prev) return prev;
+              const updates: any = {};
+              if (data.live_map_enabled !== undefined) updates.live_map_enabled = data.live_map_enabled;
+              return { ...prev, ...updates };
+            });
           }
         },
         onChatMessage,

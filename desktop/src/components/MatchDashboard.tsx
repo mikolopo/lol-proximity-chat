@@ -16,20 +16,29 @@ interface MatchDashboardProps {
   setWatchedStream: (s: string | null) => void;
   setProfilePopup: (v: { x: number; y: number; peerId: string } | null) => void;
   handleContextMenu: (e: React.MouseEvent, peerId: string) => void;
+  toggleLiveMap?: (enabled: boolean) => void;
 }
 
 export function MatchDashboard({
   activeRoom, localChampion, serverMapData, knownPeers, peerChampions,
   playerName, userId, isStreaming, streamingPlayers, watchedStream,
-  setWatchedStream, setProfilePopup, handleContextMenu,
+  setWatchedStream, setProfilePopup, handleContextMenu, toggleLiveMap,
 }: MatchDashboardProps) {
   const hasRoster = activeRoom.mode === 'proximity' && serverMapData?.team_rosters &&
     (serverMapData.team_rosters.blue?.length > 0 || serverMapData.team_rosters.red?.length > 0);
 
   return (
     <div className="w-72 bg-[#2f3136] flex flex-col border-l border-[#202225] flex-shrink-0">
-      <div className="h-12 border-b border-[#202225] flex items-center px-4 flex-shrink-0">
+      <div className="h-12 border-b border-[#202225] flex items-center justify-between px-4 flex-shrink-0">
         <h3 className="font-semibold text-white">Live Match Dashboard</h3>
+        {activeRoom.host_id === userId && toggleLiveMap && (
+          <button
+            onClick={() => toggleLiveMap(activeRoom.live_map_enabled === false ? true : false)}
+            className={`text-[10px] font-bold px-2 py-1 rounded transition-colors ${activeRoom.live_map_enabled !== false ? 'bg-[#ed4245] hover:bg-red-600 text-white' : 'bg-[#3ba55c] hover:bg-green-600 text-white'}`}
+          >
+            {activeRoom.live_map_enabled !== false ? 'DISABLE MAP' : 'ENABLE MAP'}
+          </button>
+        )}
       </div>
       <div className="flex-1 p-4 overflow-y-auto">
         {/* Your champion identity */}
@@ -43,33 +52,41 @@ export function MatchDashboard({
         {hasRoster ? (
           <>
             {/* Live Minimap */}
-            <div className="mb-4 aspect-square bg-[#1a1b1e] rounded-lg border border-[#202225] shadow-inner relative overflow-hidden">
-              <div className="absolute top-2 left-2 text-[10px] font-bold text-[#72767d] uppercase z-10 bg-black/60 px-1.5 py-0.5 rounded shadow">Live Map</div>
-              <div className="absolute w-[150%] h-[1px] bg-white/5 rotate-45 origin-left top-0 left-0" />
+            {activeRoom.live_map_enabled !== false ? (
+              <div className="mb-4 aspect-square bg-[#1a1b1e] rounded-lg border border-[#202225] shadow-inner relative overflow-hidden">
+                <div className="absolute top-2 left-2 text-[10px] font-bold text-[#72767d] uppercase z-10 bg-black/60 px-1.5 py-0.5 rounded shadow">Live Map</div>
+                <div className="absolute w-[150%] h-[1px] bg-white/5 -rotate-45 origin-left bottom-0 left-0" />
 
-              {Object.entries(serverMapData.positions || {}).map(([champ, pos]: [string, any]) => {
-                if (pos.x < 0 || pos.y < 0) return null;
-                const isBlue = pos.team === 'blue' || serverMapData.team_rosters.blue?.includes(champ);
-                const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
-                const isActive = knownPeers.has(champ) || champ === localChampion;
-                const isDead = pos.is_dead;
-                const leftPercent = (pos.x / 1000) * 100;
-                const bottomPercent = (pos.y / 1000) * 100;
+                {Object.entries(serverMapData.positions || {}).map(([champ, pos]: [string, any]) => {
+                  if (pos.x < 0 || pos.y < 0) return null;
+                  const isBlue = pos.team === 'blue' || serverMapData.team_rosters.blue?.includes(champ);
+                  const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
+                  const isActive = knownPeers.has(champ) || champ === localChampion;
+                  const isDead = pos.is_dead;
+                  const leftPercent = (pos.x / 1000) * 100;
+                  const bottomPercent = (pos.y / 1000) * 100;
 
-                return (
-                  <div
-                    key={champ}
-                    className={`absolute w-3 h-3 -mt-1.5 -ml-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} ${isActive ? 'ring-2 ring-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'shadow-sm'}`}
-                    style={{ left: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
-                    title={`${champ} (${Math.round(pos.x)}, ${Math.round(pos.y)}) - ${pos.visibility} - ${(pos.confidence * 100).toFixed(0)}%`}
-                  >
-                    <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white whitespace-nowrap bg-black/80 px-1 py-0.5 rounded shadow-xl border border-white/10 z-20">
-                      {champ.substring(0, 3)}
+                  return (
+                    <div
+                      key={champ}
+                      className={`absolute w-3 h-3 -mt-1.5 -mr-1.5 rounded-full ${colorClass} ${isDead ? 'opacity-30 grayscale' : ''} ${isActive ? 'ring-2 ring-[#3ba55c] shadow-[0_0_8px_rgba(59,165,92,0.8)]' : 'shadow-sm'}`}
+                      style={{ right: `${leftPercent}%`, bottom: `${bottomPercent}%`, transition: 'all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1)' }}
+                      title={`${champ} (${Math.round(pos.x)}, ${Math.round(pos.y)}) - ${pos.visibility} - ${(pos.confidence * 100).toFixed(0)}%`}
+                    >
+                      <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[9px] font-bold text-white whitespace-nowrap bg-black/80 px-1 py-0.5 rounded shadow-xl border border-white/10 z-20">
+                        {champ.substring(0, 3)}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mb-4 aspect-square bg-[#1a1b1e] rounded-lg border border-[#202225] shadow-inner flex flex-col items-center justify-center p-4 text-center">
+                <Monitor className="text-[#72767d] mb-2 opacity-50" size={32} />
+                <p className="text-xs text-[#b9bbbe] font-medium">Live Map is disabled</p>
+                <p className="text-[10px] text-[#72767d] mt-1">The Room Host has hidden the map to prevent stream sniping or visual clutter.</p>
+              </div>
+            )}
 
             {/* Team Rosters */}
             {['blue', 'red'].map(team => {
