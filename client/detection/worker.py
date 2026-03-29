@@ -382,11 +382,17 @@ class DetectionWorker(threading.Thread):
 
                         if alive_status is None:
                             api_failures += 1
-                            if api_failures >= 15:
+                            if api_failures >= 10: # Faster game-end detection
                                 print("[DetectionWorker] Game ended (API lost).")
                                 break
                         else:
                             api_failures = 0
+                            
+                        # Extra safety check every 2 seconds
+                        if now % 2.0 < 0.05:
+                            if not self.live.is_available():
+                                print("[DetectionWorker] Game ended (Client closed).")
+                                break
 
                         alive_status = alive_status or {}
 

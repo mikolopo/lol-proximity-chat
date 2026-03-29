@@ -16,7 +16,8 @@ interface PopoutMapAppProps {
 export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: PopoutMapAppProps) {
   const socketRef = useRef<Socket | null>(null);
   const [positions, setPositions] = useState<Record<string, any>>({});
-  const [teamRosters, setTeamRosters] = useState<{ blue: string[]; red: string[] }>({ blue: [], red: [] });
+  const [teamRosters, setTeamRosters] = useState<{ blue?: string[]; red?: string[] }>({});
+  const [mapEnabled, setMapEnabled] = useState(true);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -56,10 +57,12 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
     socket.on("player_positions", (data: any) => {
       if (data.positions) setPositions(data.positions);
       if (data.team_rosters) setTeamRosters(data.team_rosters);
+      if (data.map_enabled !== undefined) setMapEnabled(data.map_enabled);
     });
 
-    socket.on("room_state", (data: any) => {
-      if (data.team_rosters) setTeamRosters(data.team_rosters);
+    socket.on("room_state", (roomObj: any) => {
+      if (roomObj.map_enabled !== undefined) setMapEnabled(roomObj.map_enabled);
+      if (roomObj.team_rosters) setTeamRosters(roomObj.team_rosters);
     });
 
     return () => {
@@ -122,9 +125,39 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
           );
         })}
 
-        {Object.keys(positions).length === 0 && (
+        {Object.keys(positions).length === 0 && mapEnabled && (
           <div className="absolute inset-0 flex items-center justify-center">
             <p className="text-[10px] text-[#72767d] italic">Waiting for position data...</p>
+          </div>
+        )}
+
+        {/* Map Disabled Overlay */}
+        {!mapEnabled && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#292b2f]/80 backdrop-blur-[2px]">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-10 h-10 rounded-full bg-[#ed4245]/10 flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#ed4245]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                </svg>
+              </div>
+              <p className="text-xs font-bold text-white uppercase tracking-wider">Live Map Disabled</p>
+              <p className="text-[10px] text-[#b9bbbe]">The room host has deactivated this feature.</p>
+            </div>
+          </div>
+        )}
+
+        {/* Map Disabled Overlay */}
+        {!mapEnabled && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-[#292b2f]/80 backdrop-blur-[2px]">
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-10 h-10 rounded-full bg-[#ed4245]/10 flex items-center justify-center">
+                <svg className="w-6 h-6 text-[#ed4245]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18" />
+                </svg>
+              </div>
+              <p className="text-xs font-bold text-white uppercase tracking-wider">Live Map Disabled</p>
+              <p className="text-[10px] text-[#b9bbbe]">The room host has deactivated this feature.</p>
+            </div>
           </div>
         )}
       </div>

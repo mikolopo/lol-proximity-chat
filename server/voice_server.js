@@ -123,7 +123,7 @@ function createRoom(roomCode, hostId, roomType = ROOM_TYPE_PROXIMITY, teamOnly =
         roomType,
         teamOnly,
         deadChat,
-        liveMapEnabled: true,
+        mapEnabled: true,
         gamePhase: PHASE_IN_GAME,
         players: new Map(),
         mergedPositions: new Map(),
@@ -154,13 +154,16 @@ function getRoomsList(requesterUserId = null, requesterSid = null) {
         if (room.isHidden && !hasAccess) {
             continue;
         }
+        if (room.gamePhase === 'standby' || room.gamePhase === 'lobby') {
+            room.mergedPositions.clear();
+        }
         spaceList.push({
             code,
             name: room.roomName,
             type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
-            live_map_enabled: room.liveMapEnabled,
+            map_enabled: room.mapEnabled,
             is_locked: room.isLocked,
             has_password: !!room.password,
             is_hidden: room.isHidden, // Pass this so UI can show a "Hidden" badge
@@ -350,7 +353,7 @@ function broadcastRoomState(roomCode) {
         room_type: room.roomType,
         team_only: room.teamOnly,
         dead_chat: room.deadChat,
-        live_map_enabled: room.liveMapEnabled,
+        map_enabled: room.mapEnabled,
         game_phase: room.gamePhase,
         host_id: room.hostId,
         is_locked: room.isLocked,
@@ -377,17 +380,20 @@ io.on("connection", (socket) => {
             socket.join(roomCode);
             
             // Send initial state immediately so the popout isn't empty
-            const positions = {};
-            for (const [champName, mp] of room.mergedPositions) {
-                positions[champName] = {
-                    x: mp.x, y: mp.y, is_dead: mp.isDead,
-                    visibility: mp.visibility, team: mp.team
-                };
+            const positions = room.mapEnabled ? {} : null;
+            if (room.mapEnabled) {
+                for (const [champName, mp] of room.mergedPositions) {
+                    positions[champName] = {
+                        x: mp.x, y: mp.y, is_dead: mp.isDead,
+                        visibility: mp.visibility, team: mp.team
+                    };
+                }
             }
             socket.emit("player_positions", { 
                 positions, 
                 team_rosters: room.teamRosters,
-                game_phase: room.gamePhase 
+                game_phase: room.gamePhase,
+                map_enabled: room.mapEnabled
             });
             log(`Socket ${socket.id} joined room '${roomCode}' as observer`);
         }
@@ -514,7 +520,7 @@ io.on("connection", (socket) => {
             room_type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
-            live_map_enabled: room.liveMapEnabled,
+            map_enabled: room.mapEnabled,
             game_phase: room.gamePhase,
             host_id: room.hostId,
             team_rosters: room.teamRosters,
@@ -659,7 +665,7 @@ io.on("connection", (socket) => {
         }
         if (data.team_only !== undefined) room.teamOnly = Boolean(data.team_only);
         if (data.dead_chat !== undefined) room.deadChat = Boolean(data.dead_chat);
-        if (data.live_map_enabled !== undefined) room.liveMapEnabled = Boolean(data.live_map_enabled);
+        if (data.map_enabled !== undefined) room.mapEnabled = Boolean(data.map_enabled);
         if (data.room_name !== undefined) room.roomName = String(data.room_name).slice(0, 32);
 
         log(`Room '${roomCode}' settings updated by Host`);
@@ -670,7 +676,7 @@ io.on("connection", (socket) => {
             room_type: room.roomType,
             team_only: room.teamOnly,
             dead_chat: room.deadChat,
-            live_map_enabled: room.liveMapEnabled,
+            map_enabled: room.mapEnabled,
         });
         broadcastGlobalLobby(); // Update room list for global observers
     });
@@ -974,6 +980,7 @@ setInterval(() => {
                 positions: {},
                 game_phase: room.gamePhase,
                 team_rosters: room.teamRosters,
+                map_enabled: room.mapEnabled,
                 metrics: {
                     connected_count: room.players.size,
                     providing_count: 0,
@@ -1147,10 +1154,13 @@ setInterval(() => {
         }
 
         // Broadcast using native Socket.IO room broadcast (single call for ALL players)
+        const finalPositions = room.mapEnabled ? positions : {};
         io.to(roomCode).emit("player_positions", {
-            positions,
-            game_phase: room.gamePhase,
+            positions: finalPositions,
             team_rosters: room.teamRosters,
+            game_time: t,
+            num_providers: providers.size,
+            map_enabled: room.mapEnabled,
             metrics: {
                 connected_count: room.players.size,
                 providing_count: providers.size,
