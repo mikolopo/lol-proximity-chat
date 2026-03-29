@@ -1,8 +1,10 @@
-# LoL Proximity Chat
+# League Of Legends Proximity Chat
+
+
 
 ##  How It Works - or doesn't 
 
-1.  **Minimap Capture:** The app captures *only* the bottom-right corner of your screen (where the minimap lives) using high-speed screen capture (`mss`).
+1.  **Minimap Capture:** The app locks on  *only on the* the bottom-right corner of your screen (where the minimap lives) using high-speed screen capture (`mss`).
 2.  **AI Detection:** A Python-based sidecar runs a YOLOv8 model on the capture to identify champion positions.
 3.  **Game State:** It queries the League Client (LCU) and Live Game API to identify team rosters and game status.
 4.  **Audio Processing:** Your voice is captured, suppressed of noise, and sent to a Node.js relay server.
@@ -10,72 +12,67 @@
 
 ---
 
-##  Getting Started
+##  Quick Start 
+### I just want to play with my friends! (Players)
 
-### Prerequisites
-
-- **OS:** Windows 10/11
-- **Game:** League of Legends (Running in Borderless or Windowed mode is recommended)
-- **Runtime:** [Node.js](https://nodejs.org/) (for hosting the server)
-
-### Hosting the Server (Relay)
-
-The server handles voice transmission and account management.
-
-1.  Navigate to the `server/` directory.
-2.  Install dependencies: `npm install`
-3.  Run the server: `start_server.bat` (or `npm start`).
-4.  The server will listen on port **8080**.
-
-### Running the App
-
-1.  **Download the Installer:** Grab the latest `.msi` from the releases page (or build your own).
-2.  **Launch the App:** Log in or create an account.
-3.  **Join a Room:** Create or join a room using the sidebar.
-4.  **Play:** Once League of Legends starts, the app will automatically begin tracking icons.
+1.  **Download & Install:** Download the latest `.msi` installer from the [Releases](https://github.com/mikolopo/lol-proximity-chat/releases) page.
+2.  **Open the App:** Launch "LoL Proximity Chat" from your Start menu.
+3.  **Log In:** Create an account or use the **"Guest"** button to jump straight in.
+4.  **Join a Room:** Enter the **Room Name** your host gave you (and the password if they set one).
+5.  **Start League:** Just leave the app running. Once your game starts, your friends' voices will automatically move around based on the minimap!
 
 ---
 
-##  Usage Tips & Best Practices
+### I want to host a game for my friends! (Hosts)
 
-- ** Borderless Mode:** For the best experience, run League in **Borderless** mode so the app can reliably capture the minimap without focus issues.
-- ** Minimap Size:** Ensure your minimap is visible and not scaled down to sub-atomic levels. Standard scaling (33% or higher) works best for YOLO detection.
-- ** Manual Rescan:** If a champion icon gets "stuck" or detection seems desynced, use the **Manual YOLO Rescan** button in the dashboard to recalibrate the capture.
-- ** Mic Calibration:** Use the built-in Mic Test in settings to adjust your **Noise Gate**. This ensures you don't broadcast your keyboard clicking to your teammates.
+To host, you just need to run the relay server on your computer. Choose the method that works best for you:
+
+#### Method 1: Windows 
+1.  **Download project:** Download and extract the repository folder to your desktop.
+2.  **Open Server Folder:** Navigate into the `server/` directory.
+3.  **Run Server:** Double-click the **`start_server.bat`** file. A black window will open.
+4.  **Stay Running:** Keep that window open while you and your friends play.
+
+#### Method 2: Linux or VPS
+1.  **Prepare Script:** Open your terminal in the `server/` folder.
+2.  **Set Permissions:** Run `chmod +x start_server.sh`.
+3.  **Run Server:** Execute `./start_server.sh`.
+4.  **Background (Optional):** Use `screen` or `pm2` to keep the server running if you close your terminal.
+
+#### Method 3: Docker 
+1.  **Install Docker:** Ensure you have Docker installed on your Linux system.
+2.  **Launch:** In the `server/` folder, run the following commands:
+    ```bash
+    chmod +x start_docker.sh
+    ./start_docker.sh
+    ```
+  **Check Status:** Your server is now building and running in the background. You can view logs with `docker logs -f voice-server`.
+
+#### Important for all Hosts:
+- **IP Address:** Share your **Public IP Address** (search "what is my IP" on Google) with your friends.
+- **Port Forwarding:** For friends outside your home to connect, you must "Port Forward" **Port 8080** on your router. 
+- **Firewall:** Ensure Windows/Linux Firewall is not blocking Node.js or Port 8080.
+
+---
+
+##  How it Works 
+
+*   **Minimap Vision:** The app "looks" at your minimap (just like you do!) to see where champions are.
+*   **Proximity Magic:** If a teammate is near you on the map, their voice is loud. If they walk away, they get quieter.
+*   **Team Aware:** It automatically knows who is on your team so you only hear the right people.
+*   **Privacy First:** It never reads your chat, your passwords, or your screen outside of the minimap corner.
 
 ---
 
-##  Advanced Technical Details
+##  Pro Tips for a Smooth Game
 
-### Server Configuration
-The relay server can be configured using environment variables:
-- `PORT`: The port to listen on (default: `8080`).
-- `HOST`: The host interface (default: `0.0.0.0`).
-
-### Audio Distance Calculation
-The proximity logic uses the following internal constants (found in `VoiceManager.ts`):
-- `startDropDist`: Volume starts to fade at **80 grid units**.
-- `maxDist`: Volume hits zero at **150 grid units**.
-- `lastKnownThreshold`: If a player leaves vision, they remain audible for **3 seconds** at their last known position before fading entirely.
-
-### Voice Pipeline
-`Mic -> RNNoise (WASM) -> Gain (Local) -> Opus/Socket.IO -> Server -> Peer -> Dynamics Compressor -> Output`
+*   **Use Borderless Mode:** Run League in **"Borderless"** window mode (Settings > Video). This helps the app see the minimap much better than "Full Screen".
+*   **Stuck Icons?** If someone's voice seems "stuck" in the wrong place, click the **"Manual Rescan"** button in the app to reload map detection.
+*   **Silence the Keyboard:** Turn on **RNNoise** in the audio settings to block out your mechanical keyboard clicks automatically!
 
 ---
 
-##  Troubleshooting FAQ
-
-**Q: The app isn't detecting icons on the map.**
-A: Make sure your game resolution matches your Windows display resolution and that the minimap isn't obscured by other overlays (like Blitz or OP.GG). Try clicking "Manual Rescan".
-
-**Q: I can't connect to my friend's server.**
-A: Ensure the host has port `8080` (or their custom port) open on their router's firewall (Port Forwarding).
-
-**Q: I hear "echo" or background noise.**
-A: Enable **RNNoise** in the audio settings. This AI-powered suppression is highly effective at removing constant hums and clicks.
-
-
----
+--
 
 ##  Tech Stack
 
@@ -87,7 +84,6 @@ A: Enable **RNNoise** in the audio settings. This AI-powered suppression is high
 
 ---
 
-##  Project Structure
 
 ```bash
 ├── client/      # Python Sidecar (Screen capture, YOLO detection, API)
@@ -101,9 +97,6 @@ A: Enable **RNNoise** in the audio settings. This AI-powered suppression is high
 ##  Disclaimer
 
 **LoL Proximity Chat** is a third-party tool. While it only reads the minimap pixels and official Riot APIs (LCU/Live Game API), use it at your own risk. We are not responsible for any actions taken by Riot Games (Vanguard/Account Bans). We strive to stay within the bounds of "fair play" by only using information visible to the player.
-
-
-
 
 
 please let me out
