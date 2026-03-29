@@ -129,6 +129,7 @@ function createRoom(roomCode, hostId, roomType = ROOM_TYPE_PROXIMITY, teamOnly =
         mergedPositions: new Map(),
         teamRosters: {},
         playerRosters: new Map(), // sid -> { blue: [], red: [] }
+        accessibleUserIds: new Set([hostId]), // Users who can see hidden room
         createdAt: Date.now() / 1000,
         emptySince: Date.now() / 1000, // Tracks how long room has been empty
         packetsIn: 0,
@@ -144,9 +145,13 @@ const sidToRoom = new Map();
 
 function getRoomsList(requesterUserId = null, requesterSid = null) {
     const spaceList = [];
+    const userIdStr = requesterUserId ? String(requesterUserId) : null;
     for (const [code, room] of rooms) {
-        // Skip hidden rooms UNLESS the requester is the host OR is already in the room
-        if (room.isHidden && room.hostId !== requesterUserId && !room.players.has(requesterSid)) {
+        // Skip hidden rooms UNLESS the requester has explicit access (Host/Former player)
+        // OR is currently in the room (checked via sid or userId)
+        const hasAccess = (userIdStr && room.accessibleUserIds.has(userIdStr)) || room.players.has(requesterSid);
+        
+        if (room.isHidden && !hasAccess) {
             continue;
         }
         spaceList.push({
@@ -503,6 +508,11 @@ io.on("connection", (socket) => {
             champion_name: player.championName || "",
             user_id: socket.userId
         });
+
+        // Add successfully joined user to accessibility list for hidden room persistence
+        if (socket.userId) {
+            room.accessibleUserIds.add(String(socket.userId));
+        }
 
         log(`${socket.username} (${socket.userId}) joined room '${roomCode}' (type: ${room.roomType}, ${room.players.size} players)`);
         broadcastRoomState(roomCode);

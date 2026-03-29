@@ -31,42 +31,50 @@ export function ServerSidebar({
       <div className="w-8 h-[2px] bg-bg-secondary rounded-full mt-1 mb-1" />
 
       {/* Room Icons */}
-      {rooms.map((room) => {
-        const isConnectedHere = isConnected && activeRoom?.id === room.id;
-        const isPreviewingHere = previewRoom?.id === room.id;
+      {(() => {
+        // Create a final list of rooms to render, ensuring previewRoom is included if not in 'rooms'
+        const displayRooms = [...rooms];
+        if (previewRoom && !rooms.some(r => r.id === previewRoom.id)) {
+          displayRooms.push(previewRoom);
+        }
 
-        return (
-          <div
-            key={room.id}
-            className="relative group flex items-center justify-center w-full"
-            onMouseEnter={() => setHoveredRoom(room.id)}
-            onMouseLeave={() => setHoveredRoom(null)}
-          >
-            <div className={`absolute left-0 w-1 bg-white rounded-r-full transition-all duration-300
-              ${isConnectedHere ? 'h-10' : (isPreviewingHere ? 'h-8' : 'h-0 group-hover:h-5')}`}
-            />
+        return displayRooms.map((room) => {
+          const isConnectedHere = isConnected && activeRoom?.id === room.id;
+          const isPreviewingHere = previewRoom?.id === room.id;
+
+          return (
             <div
-              onClick={() => setPreviewRoom(room)}
-              onContextMenu={(e) => handleRoomContextMenu(e, room)}
-              className={`w-12 h-12 transition-all duration-200 flex items-center justify-center cursor-pointer text-white font-bold text-lg relative
-                ${isPreviewingHere || isConnectedHere ? 'rounded-[16px] bg-accent' : 'rounded-[24px] bg-bg-secondary hover:rounded-[16px] hover:bg-accent'}`}
+              key={room.id}
+              className="relative group flex items-center justify-center w-full"
+              onMouseEnter={() => setHoveredRoom(room.id)}
+              onMouseLeave={() => setHoveredRoom(null)}
             >
-              {room.id.substring(0, 2)}
-              {room.is_locked && <Lock size={12} className="absolute -bottom-1 -right-1 text-[#ed4245] bg-[#292b2f] rounded-full p-0.5" />}
-            </div>
-
-            {/* Tooltip */}
-            {hoveredRoom === room.id && (
-              <div className="absolute left-[70px] bg-black text-white px-3 py-1.5 rounded-md text-sm whitespace-nowrap z-50 shadow-lg font-semibold flex flex-col">
-                <span>{room.id} - {room.mode === 'proximity' ? 'Spatial' : room.mode === 'team' ? 'Team' : 'Global'}</span>
-                <span className="text-xs text-text-muted font-normal mt-0.5">
-                  {isConnectedHere ? 'Connected' : (roomMembers[room.id]?.length ? `${roomMembers[room.id].length} online` : 'Click to preview')}
-                </span>
+              <div className={`absolute left-0 w-1 bg-white rounded-r-full transition-all duration-300
+                ${isConnectedHere ? 'h-10' : (isPreviewingHere ? 'h-8' : 'h-0 group-hover:h-5')}`}
+              />
+              <div
+                onClick={() => setPreviewRoom(room)}
+                onContextMenu={(e) => handleRoomContextMenu(e, room)}
+                className={`w-12 h-12 transition-all duration-200 flex items-center justify-center cursor-pointer text-white font-bold text-lg relative
+                  ${isPreviewingHere || isConnectedHere ? 'rounded-[16px] bg-accent' : 'rounded-[24px] bg-bg-secondary hover:rounded-[16px] hover:bg-accent'}`}
+              >
+                {room.id.substring(0, 2)}
+                {room.is_locked && <Lock size={12} className="absolute -bottom-1 -right-1 text-[#ed4245] bg-[#292b2f] rounded-full p-0.5" />}
               </div>
-            )}
-          </div>
-        );
-      })}
+
+              {/* Tooltip */}
+              {hoveredRoom === room.id && (
+                <div className="absolute left-[70px] bg-black text-white px-3 py-1.5 rounded-md text-sm whitespace-nowrap z-50 shadow-lg font-semibold flex flex-col">
+                  <span>{room.id} - {room.mode === 'proximity' ? 'Spatial' : room.mode === 'team' ? 'Team' : 'Global'}</span>
+                  <span className="text-xs text-text-muted font-normal mt-0.5">
+                    {isConnectedHere ? 'Connected' : (roomMembers[room.id]?.length ? `${roomMembers[room.id].length} online` : 'Click to preview')}
+                  </span>
+                </div>
+              )}
+            </div>
+          );
+        });
+      })()}
 
       {/* Add Room Button */}
       <div

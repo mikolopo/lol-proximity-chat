@@ -55,10 +55,10 @@ export function MatchDashboard({
             {activeRoom.live_map_enabled !== false ? (
               <div className="mb-4 aspect-square bg-[#1a1b1e] rounded-lg border border-[#202225] shadow-inner relative overflow-hidden">
                   <div className="absolute top-2 left-2 text-[10px] font-bold text-[#72767d] uppercase z-10 bg-black/60 px-1.5 py-0.5 rounded shadow">Live Map</div>
-                {/* Visual labels rotated for 90° CCW logic: Blue (0,0) is now Top-Left, Red (1,1) is Bottom-Right */}
-                <div className="absolute top-1 left-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
-                <div className="absolute bottom-1 right-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
-                {/* River line */}
+                {/* Visual labels: Blue (0,0) is Bottom-Left, Red (1000,1000) is Top-Right */}
+                <div className="absolute bottom-1 left-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
+                <div className="absolute top-1 right-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
+                {/* River line (Top-Left to Bottom-Right) */}
                 <div className="absolute w-[150%] h-[1px] bg-white/5 rotate-45 origin-left top-0 left-0" />
 
                 {Object.entries(serverMapData.positions || {}).map(([champ, pos]: [string, any]) => {
@@ -67,9 +67,9 @@ export function MatchDashboard({
                   const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
                   const isActive = knownPeers.has(champ) || champ === localChampion;
                   const isDead = pos.is_dead;
-                  // 90° CCW rotation: new_x = y, new_y = 100 - x
-                  const leftPercent = (pos.y / 1000) * 100;
-                  const bottomPercent = 100 - (pos.x / 1000) * 100;
+                  // Standard orientation: Blue (0,0) is Bottom-Left, Red (1,1) is Top-Right
+                  const leftPercent = (pos.x / 1000) * 100;
+                  const bottomPercent = (pos.y / 1000) * 100;
 
                   return (
                     <div

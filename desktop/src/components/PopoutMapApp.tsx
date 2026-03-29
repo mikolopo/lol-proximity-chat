@@ -94,18 +94,18 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
         {/* Diagonal river line */}
         <div className="absolute w-[150%] h-[1px] bg-white/5 rotate-45 origin-left top-0 left-0" />
 
-        {/* Visual labels rotated for 90° CCW logic: Blue (0,0) is now Top-Left, Red (1,1) is Bottom-Right */}
-        <div className="absolute top-1 left-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
-        <div className="absolute bottom-1 right-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
+        {/* Visual labels: Blue (0,0) is Bottom-Left, Red (1,1) is Top-Right */}
+        <div className="absolute bottom-1 left-1 text-[8px] font-bold text-[#5865f2]/40 uppercase z-10">Blue</div>
+        <div className="absolute top-1 right-1 text-[8px] font-bold text-[#ed4245]/40 uppercase z-10">Red</div>
 
         {Object.entries(positions).map(([champ, pos]: [string, any]) => {
           if (pos.x < 0 || pos.y < 0) return null;
           const isBlue = pos.team === 'blue' || teamRosters.blue?.includes(champ);
           const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
           const isDead = pos.is_dead;
-          // 90° CCW rotation: new_x = y, new_y = 100 - x
-          const leftPercent = (pos.y / 1000) * 100;
-          const bottomPercent = 100 - (pos.x / 1000) * 100;
+          // Standard orientation: Blue (0,0) is Bottom-Left, Red (1,1) is Top-Right
+          const leftPercent = (pos.x / 1000) * 100;
+          const bottomPercent = (pos.y / 1000) * 100;
 
           return (
             <div
