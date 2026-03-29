@@ -6,13 +6,33 @@ const { getRequiredVersion } = require("./version");
 
 const JWT_SECRET = process.env.JWT_SECRET || "local-dev-secret-super-safe";
 
+// Simple Rate Limiting for Auth Endpoints
+const authRateLimits = new Map();
+setInterval(() => authRateLimits.clear(), 10 * 60 * 1000); // Clear map every 10 mins
+
+function checkRateLimit(ip) {
+    if (!ip) return true;
+    const maxRequests = 10;
+    const current = authRateLimits.get(ip) || 0;
+    if (current >= maxRequests) return false;
+    authRateLimits.set(ip, current + 1);
+    return true;
+}
+
 // Helpers
 function generateUserId() {
     return crypto.randomBytes(8).toString("hex");
 }
 
 function handleAuthRoutes(req, res) {
+    const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+
     if (req.method === "POST" && req.url === "/auth/register") {
+        if (!checkRateLimit(ip)) {
+            res.writeHead(429, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Too many requests. Try again later." }));
+            return true;
+        }
         let body = "";
         req.on("data", chunk => body += chunk);
         req.on("end", async () => {
@@ -60,11 +80,11 @@ function handleAuthRoutes(req, res) {
 
                     const hash = await bcrypt.hash(password, 10);
                     const userId = generateUserId();
-                    const now = Math.floor(Date.now() / 1000);
+                    const now = Date.now();
 
                     db.run(
-                        "INSERT INTO users (id, username, email, password_hash, display_name, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                        [userId, trimmedName, email.toLowerCase().trim(), hash, trimmedName, now],
+                        "INSERT INTO users (id, username, email, password_hash, display_name, created_at, is_guest) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        [userId, trimmedName, email.toLowerCase().trim(), hash, trimmedName, now, 0],
                         (err) => {
                             if (err) {
                                 // Could be email or username uniqueness violation
@@ -73,9 +93,9 @@ function handleAuthRoutes(req, res) {
                                 res.end(JSON.stringify({ error: msg })); 
                                 return;
                             }
-                            const token = jwt.sign({ userId, username: trimmedName }, JWT_SECRET, { expiresIn: "7d" });
+                            const token = jwt.sign({ userId, username: trimmedName, isGuest: false }, JWT_SECRET, { expiresIn: "7d" });
                             res.writeHead(200, { "Content-Type": "application/json" });
-                            res.end(JSON.stringify({ token, userId, displayName: trimmedName }));
+                            res.end(JSON.stringify({ token, userId, displayName: trimmedName, isGuest: false }));
                         }
                     );
                 });
@@ -88,6 +108,11 @@ function handleAuthRoutes(req, res) {
     }
 
     if (req.method === "POST" && req.url === "/auth/login") {
+        if (!checkRateLimit(ip)) {
+            res.writeHead(429, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Too many requests. Try again later." }));
+            return true;
+        }
         let body = "";
         req.on("data", chunk => body += chunk);
         req.on("end", () => {
@@ -95,7 +120,7 @@ function handleAuthRoutes(req, res) {
                 const { email, password, version } = JSON.parse(body);
 
                 const currentRequiredVersion = getRequiredVersion();
-                if (version !== currentRequiredVersion) {
+                if (version && version !== currentRequiredVersion) {
                     res.writeHead(403, { "Content-Type": "application/json" });
                     res.end(JSON.stringify({ error: `Update Required! Please download version ${currentRequiredVersion} of LoL Proximity Chat.` }));
                     return;
@@ -119,15 +144,45 @@ function handleAuthRoutes(req, res) {
                         res.end(JSON.stringify({ error: "Invalid email or password" })); 
                         return;
                     }
-                    const token = jwt.sign({ userId: row.id, username: row.display_name || row.username }, JWT_SECRET, { expiresIn: "7d" });
+                    const isGuest = row.is_guest === 1;
+                    const token = jwt.sign({ userId: row.id, username: row.display_name || row.username, isGuest }, JWT_SECRET, { expiresIn: "7d" });
                     res.writeHead(200, { "Content-Type": "application/json" });
-                    res.end(JSON.stringify({ token, userId: row.id, displayName: row.display_name || row.username }));
+                    res.end(JSON.stringify({ token, userId: row.id, displayName: row.display_name || row.username, isGuest }));
                 });
             } catch (e) {
                 res.writeHead(500, { "Content-Type": "application/json" }); 
                 res.end(JSON.stringify({ error: "Server Error" }));
             }
         });
+        return true;
+    }
+
+    if (req.method === "POST" && req.url === "/auth/guest") {
+        if (!checkRateLimit(ip)) {
+            res.writeHead(429, { "Content-Type": "application/json" });
+            res.end(JSON.stringify({ error: "Too many requests. Try again later." }));
+            return true;
+        }
+        
+        const userId = generateUserId();
+        const guestName = "Guest_" + crypto.randomBytes(3).toString("hex").toUpperCase();
+        const now = Date.now();
+
+        // For sqlite3, creating new guest
+        db.run(
+            "INSERT INTO users (id, username, email, password_hash, display_name, created_at, is_guest) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [userId, guestName, guestName.toLowerCase() + "@guest.local", "", guestName, now, 1],
+            (err) => {
+                if (err) {
+                    res.writeHead(500, { "Content-Type": "application/json" }); 
+                    res.end(JSON.stringify({ error: "Server Error creating guest" })); 
+                    return;
+                }
+                const token = jwt.sign({ userId, username: guestName, isGuest: true }, JWT_SECRET, { expiresIn: "3d" });
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ token, userId, displayName: guestName, isGuest: true }));
+            }
+        );
         return true;
     }
     
@@ -137,8 +192,11 @@ function handleAuthRoutes(req, res) {
         const token = authHeader.replace("Bearer ", "");
         const decoded = verifyToken(token);
         if (decoded) {
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ userId: decoded.userId, displayName: decoded.username }));
+            db.get("SELECT is_guest FROM users WHERE id = ?", [decoded.userId], (err, row) => {
+                const isGuest = row?.is_guest === 1 || decoded.isGuest === true;
+                res.writeHead(200, { "Content-Type": "application/json" });
+                res.end(JSON.stringify({ userId: decoded.userId, displayName: decoded.username, isGuest }));
+            });
         } else {
             res.writeHead(401, { "Content-Type": "application/json" });
             res.end(JSON.stringify({ error: "Unauthorized" }));
@@ -175,7 +233,7 @@ function handleAuthRoutes(req, res) {
                         res.end(JSON.stringify({ error: "Display name already taken" }));
                         return;
                     }
-                    db.run("UPDATE users SET display_name = ?, username = ? WHERE id = ?", [trimmed, trimmed, decoded.userId], (updateErr) => {
+                    db.run("UPDATE users SET display_name = ? WHERE id = ?", [trimmed, decoded.userId], (updateErr) => {
                         if (updateErr) {
                             res.writeHead(500, { "Content-Type": "application/json" });
                             res.end(JSON.stringify({ error: "Failed to update" }));

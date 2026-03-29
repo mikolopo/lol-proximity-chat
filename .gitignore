@@ -29,6 +29,8 @@ Thumbs.db
 # Secrets & Keys
 *.key
 *.key.pub
+*.pfx
+*.p12
 .env
 *.log
 

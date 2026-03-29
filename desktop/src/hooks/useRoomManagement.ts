@@ -19,8 +19,12 @@ export function useRoomManagement(
   const [showAddModal, setShowAddModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'profile' | 'audio' | 'debug'>('profile');
+  const [addModalTab, setAddModalTab] = useState<'create' | 'join'>('join');
   const [newRoomInput, setNewRoomInput] = useState("");
+  const [newRoomName, setNewRoomName] = useState("");
   const [newRoomMode, setNewRoomMode] = useState<'global' | 'team' | 'proximity'>('proximity');
+  const [newRoomHidden, setNewRoomHidden] = useState(false);
+  const [newRoomPasswordCreate, setNewRoomPasswordCreate] = useState("");
   const [showStreamPickerModal, setShowStreamPickerModal] = useState(false);
 
   // Context menus / popups
@@ -29,36 +33,48 @@ export function useRoomManagement(
   const [roomContextMenu, setRoomContextMenu] = useState<RoomContextMenuState | null>(null);
   const [showPasswordSetup, setShowPasswordSetup] = useState<{ roomCode: string } | null>(null);
   const [newRoomPassword, setNewRoomPassword] = useState("");
+  const [showPasswordJoin, setShowPasswordJoin] = useState<{ roomCode: string } | null>(null);
+  const [joinRoomPassword, setJoinRoomPassword] = useState("");
 
   const submitAddRoom = useCallback((e: React.FormEvent) => {
     e.preventDefault();
-    const cleanRoom = newRoomInput.trim().toUpperCase();
-    if (!cleanRoom) return;
 
     if (globalSocketRef.current?.connected) {
-      globalSocketRef.current.emit("create_room", {
-        room_code: cleanRoom,
-        room_type: newRoomMode === 'proximity' ? 'proximity' : 'normal',
-        team_only: newRoomMode === 'team',
-        dead_chat: newRoomMode === 'proximity',
-      });
-      if (!rooms.find(r => r.id === cleanRoom)) {
-        setRooms(prev => [...prev, { id: cleanRoom, mode: newRoomMode }]);
-      }
-      setPreviewRoom({ id: cleanRoom, mode: newRoomMode });
-    } else {
-      if (!rooms.find(r => r.id === cleanRoom)) {
-        const createdRoom: RoomInfo = { id: cleanRoom, mode: newRoomMode };
-        setRooms(prev => [...prev, createdRoom]);
-        setPreviewRoom(createdRoom);
+      if (addModalTab === 'join') {
+        const cleanRoom = newRoomInput.trim().toUpperCase();
+        if (!cleanRoom) return;
+        setPreviewRoom({ id: cleanRoom, mode: 'proximity' });
       } else {
-        setPreviewRoom(rooms.find(r => r.id === cleanRoom) || null);
+        const cleanName = newRoomName.trim();
+        if (!cleanName) return;
+        globalSocketRef.current.emit("create_room", {
+          room_name: cleanName,
+          room_type: newRoomMode === 'proximity' ? 'proximity' : 'normal',
+          team_only: newRoomMode === 'team',
+          dead_chat: newRoomMode === 'proximity',
+          is_hidden: newRoomHidden,
+          password: newRoomPasswordCreate,
+        });
+        // We will receive room_created_success to actually preview it.
+      }
+    } else {
+      // Local mostly for offline UI debug/testing
+      if (addModalTab === 'join') {
+        const cleanRoom = newRoomInput.trim().toUpperCase();
+        const existing = rooms.find(r => r.id === cleanRoom);
+        if (existing) setPreviewRoom(existing);
+        else setPreviewRoom({ id: cleanRoom, mode: 'proximity' });
       }
     }
+
+    setAddModalTab('join');
     setNewRoomInput("");
+    setNewRoomName("");
+    setNewRoomPasswordCreate("");
+    setNewRoomHidden(false);
     setNewRoomMode('proximity');
     setShowAddModal(false);
-  }, [newRoomInput, newRoomMode, rooms]);
+  }, [newRoomInput, newRoomName, newRoomMode, newRoomHidden, newRoomPasswordCreate, addModalTab, rooms]);
 
   const handleRoomContextMenu = useCallback((e: React.MouseEvent, room: RoomInfo) => {
     e.preventDefault();
@@ -116,12 +132,18 @@ export function useRoomManagement(
     // Modals
     showAddModal, setShowAddModal, showSettingsModal, setShowSettingsModal,
     settingsTab, setSettingsTab,
-    newRoomInput, setNewRoomInput, newRoomMode, setNewRoomMode,
+    addModalTab, setAddModalTab,
+    newRoomInput, setNewRoomInput,
+    newRoomName, setNewRoomName,
+    newRoomMode, setNewRoomMode,
+    newRoomHidden, setNewRoomHidden,
+    newRoomPasswordCreate, setNewRoomPasswordCreate,
     showStreamPickerModal, setShowStreamPickerModal,
     // Context menus
     contextMenu, setContextMenu, profilePopup, setProfilePopup,
     roomContextMenu, setRoomContextMenu,
     showPasswordSetup, setShowPasswordSetup, newRoomPassword, setNewRoomPassword,
+    showPasswordJoin, setShowPasswordJoin, joinRoomPassword, setJoinRoomPassword,
     // Handlers
     submitAddRoom, handleRoomContextMenu, handleToggleLock, handleRemovePassword,
     handleDeleteRoom, handleKickPlayer, handleContextMenu, setRoomPassword,

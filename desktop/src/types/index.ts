@@ -1,7 +1,8 @@
 // ─── Shared Types for LoL Proximity Chat ───
 
 export interface RoomInfo {
-  id: string;
+  id: string; // roomCode
+  name?: string; // roomName
   mode: 'global' | 'team' | 'proximity';
   host_id?: string;
   is_locked?: boolean;

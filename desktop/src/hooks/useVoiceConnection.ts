@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import { VoiceManager } from "../voice/VoiceManager";
 import type { RoomInfo } from "../types";
-import { playNotificationSound } from "../utils/audio";
+import { playNotificationSound, initGlobalAudioContext } from "../utils/audio";
 
 /** Voice connection lifecycle, mic/deafen toggles, peer tracking. */
 export function useVoiceConnection(
@@ -106,8 +106,12 @@ export function useVoiceConnection(
     setPreviewRoom: (r: RoomInfo | null) => void,
     setLogs: React.Dispatch<React.SetStateAction<string[]>>,
     onChatMessage: (msg: { sender: string; message: string; timestamp: number }) => void,
+    onRoomError: (msg: string, roomCode: string) => void,
   ) => {
     if (!targetRoom.id.trim()) return;
+
+    // Initialize the shared audio context synchronously during this click event
+    initGlobalAudioContext();
 
     // Disconnect existing connection
     if (isConnected && voiceManagerRef.current) {
@@ -173,6 +177,12 @@ export function useVoiceConnection(
             const idToUse = data.user_id ? data.user_id.toString() : data.player_name;
             setKnownPeers(prev => new Set(prev).add(idToUse));
             if (data.champion_name) setPeerChampions(prev => ({ ...prev, [idToUse]: data.champion_name }));
+          } else if (event === 'room_error') {
+            setLogs(l => [...l.slice(-50), `[SERVER ERROR] ${data.message}`]);
+            setIsConnected(false);
+            setActiveRoom(null);
+            voiceManagerRef.current?.disconnect();
+            onRoomError(data.message, targetRoom.id);
           } else if (event === 'player_left') {
             setLogs(l => [...l.slice(-50), `[SERVER] ${data.player_name} left the room`]);
             playNotificationSound('leave');

@@ -26,6 +26,7 @@ import { SettingsModal } from "./components/modals/SettingsModal";
 import { AddRoomModal } from "./components/modals/AddRoomModal";
 import { StreamPickerModal } from "./components/modals/StreamPickerModal";
 import { PasswordSetupModal } from "./components/modals/PasswordSetupModal";
+import { PasswordJoinModal } from "./components/modals/PasswordJoinModal";
 import { ChangePasswordModal } from "./components/modals/ChangePasswordModal";
 
 function App() {
@@ -148,12 +149,23 @@ function App() {
   // ─── Wrapped handlers that bridge hooks ───
   const wrappedConnect = (room: typeof rooms.activeRoom & {}) => {
     if (!room) return;
+    if (room.has_password && !room.password) {
+        rooms.setShowPasswordJoin({ roomCode: room.id });
+        return;
+    }
     voice.handleConnect(
       room, audio.selectedMic, audio.selectedSpeaker,
       audio.micVolume, audio.headphoneVolume, audio.noiseGate,
       sidecar.sidecarChildRef, sidecar.isDetecting, sidecar.setIsDetecting,
       rooms.setActiveRoom, rooms.setPreviewRoom, sidecar.setLogs,
       (msg) => chat.addMessage(room.id, msg),
+      (errMsg, errRoomId) => {
+        if (errMsg === "Incorrect password.") {
+            rooms.setShowPasswordJoin({ roomCode: errRoomId });
+        } else {
+            alert(`Server Error: ${errMsg}`);
+        }
+      }
     );
   };
 
@@ -186,6 +198,7 @@ function App() {
         authConfirmPassword={auth.authConfirmPassword} setAuthConfirmPassword={auth.setAuthConfirmPassword}
         authError={auth.authError} setAuthError={auth.setAuthError}
         handleAuthSubmit={auth.handleAuthSubmit}
+        handleGuestLogin={auth.handleGuestLogin}
         hasUpdate={updater.hasUpdate}
         updateStatus={updater.updateStatus}
         isCheckingUpdate={updater.isCheckingUpdate}
@@ -210,8 +223,13 @@ function App() {
       )}
       {rooms.showAddModal && (
         <AddRoomModal
+          isGuest={auth.isGuest}
+          addModalTab={rooms.addModalTab} setAddModalTab={rooms.setAddModalTab}
           newRoomInput={rooms.newRoomInput} setNewRoomInput={rooms.setNewRoomInput}
+          newRoomName={rooms.newRoomName} setNewRoomName={rooms.setNewRoomName}
           newRoomMode={rooms.newRoomMode} setNewRoomMode={rooms.setNewRoomMode}
+          newRoomHidden={rooms.newRoomHidden} setNewRoomHidden={rooms.setNewRoomHidden}
+          newRoomPasswordCreate={rooms.newRoomPasswordCreate} setNewRoomPasswordCreate={rooms.setNewRoomPasswordCreate}
           onClose={() => rooms.setShowAddModal(false)} onSubmit={rooms.submitAddRoom}
         />
       )}
@@ -319,6 +337,21 @@ function App() {
           password={rooms.newRoomPassword} setPassword={rooms.setNewRoomPassword}
           onCancel={() => { rooms.setShowPasswordSetup(null); rooms.setNewRoomPassword(""); rooms.setRoomContextMenu(null); }}
           onSubmit={rooms.setRoomPassword}
+        />
+      )}
+      {rooms.showPasswordJoin && (
+        <PasswordJoinModal
+          roomCode={rooms.showPasswordJoin.roomCode}
+          passwordInput={rooms.joinRoomPassword} setPasswordInput={rooms.setJoinRoomPassword}
+          onClose={() => { rooms.setShowPasswordJoin(null); rooms.setJoinRoomPassword(""); }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            rooms.setShowPasswordJoin(null);
+            if (rooms.previewRoom) {
+              wrappedConnect({ ...rooms.previewRoom, password: rooms.joinRoomPassword });
+            }
+            rooms.setJoinRoomPassword("");
+          }}
         />
       )}
     </div>

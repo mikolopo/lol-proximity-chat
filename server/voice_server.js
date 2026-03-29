@@ -3,6 +3,8 @@ const http = require("http");
 const { Server } = require("socket.io");
 const { handleAuthRoutes, verifyToken } = require("./auth");
 const { getRequiredVersion } = require("./version");
+const crypto = require("crypto");
+const db = require("./db");
 
 // config
 const HOST = process.env.HOST || "0.0.0.0";
@@ -116,6 +118,7 @@ function createRoom(roomCode, hostId, roomType = ROOM_TYPE_PROXIMITY, teamOnly =
         hostId,
         password: null, // For future password setup
         isLocked: false,
+        isHidden: false,
         roomName: "",
         roomType,
         teamOnly,
@@ -141,6 +144,7 @@ const sidToRoom = new Map();
 function getRoomsList() {
     const spaceList = [];
     for (const [code, room] of rooms) {
+        if (room.isHidden) continue;
         spaceList.push({
             code,
             name: room.roomName,
@@ -230,6 +234,12 @@ const io = new Server(httpServer, {
     pingTimeout: 20000,
     maxHttpBufferSize: 1e6, // 1MB max packet
 });
+
+const socketJoinAttempts = new Map();
+
+function generateRoomCode() {
+    return crypto.randomBytes(3).toString("hex").toUpperCase();
+}
 
 // Authentication Middleware for Socket.io
 io.use((socket, next) => {
@@ -350,23 +360,26 @@ io.on("connection", (socket) => {
     });
 
     socket.on("create_room", (data) => {
-        let roomCode = (data.room_code || "").trim().toUpperCase();
+        let roomCode = generateRoomCode();
+        while (rooms.has(roomCode)) {
+            roomCode = generateRoomCode();
+        }
+
         let roomType = (data.room_type || ROOM_TYPE_PROXIMITY).toLowerCase();
         if (!VALID_ROOM_TYPES.has(roomType)) roomType = ROOM_TYPE_PROXIMITY;
 
-        if (!roomCode) {
-            socket.emit("room_error", { message: "Room code cannot be empty" });
-            return;
-        }
-
-        if (!rooms.has(roomCode)) {
-            const teamOnly = data.team_only || false;
-            const deadChat = data.dead_chat !== undefined ? data.dead_chat : true;
-            rooms.set(roomCode, createRoom(roomCode, socket.userId, roomType, teamOnly, deadChat));
-            log(`Room '${roomCode}' explicitly created by ${socket.username} (${socket.userId})`);
-            broadcastGlobalLobby();
-            socket.emit("room_created_success", { room_code: roomCode });
-        }
+        const teamOnly = data.team_only || false;
+        const deadChat = data.dead_chat !== undefined ? data.dead_chat : true;
+        
+        const newRoom = createRoom(roomCode, socket.userId, roomType, teamOnly, deadChat);
+        newRoom.roomName = String(data.room_name || "New Room").slice(0, 32);
+        newRoom.isHidden = Boolean(data.is_hidden);
+        newRoom.password = data.password ? String(data.password) : null;
+        
+        rooms.set(roomCode, newRoom);
+        log(`Room '${roomCode}' explicitly created by ${socket.username} (${socket.userId})`);
+        broadcastGlobalLobby();
+        socket.emit("room_created_success", { room_code: roomCode, room_name: newRoom.roomName });
     });
 
     socket.on("join_room", async (data) => {
@@ -400,6 +413,14 @@ io.on("connection", (socket) => {
 
         const room = rooms.get(roomCode);
         
+        const nowMs = Date.now();
+        const limitRecord = socketJoinAttempts.get(socket.id) || { count: 0, lockedUntil: 0 };
+        if (limitRecord.lockedUntil > nowMs) {
+            const timeLeft = Math.ceil((limitRecord.lockedUntil - nowMs) / 1000);
+            socket.emit("room_error", { message: `Too many failed joins. Try again in ${timeLeft}s.` });
+            return;
+        }
+
         // Security checks (if not creator)
         if (room.hostId !== socket.userId) {
             if (room.isLocked) {
@@ -407,8 +428,15 @@ io.on("connection", (socket) => {
                 return;
             }
             if (room.password && room.password !== data.password) {
+                limitRecord.count++;
+                if (limitRecord.count >= 5) {
+                    limitRecord.lockedUntil = nowMs + 5 * 60 * 1000;
+                }
+                socketJoinAttempts.set(socket.id, limitRecord);
                 socket.emit("room_error", { message: "Incorrect password." });
                 return;
+            } else if (room.password) {
+                socketJoinAttempts.delete(socket.id);
             }
         }
 
@@ -519,7 +547,10 @@ io.on("connection", (socket) => {
         if (data.is_locked !== undefined) {
             room.isLocked = Boolean(data.is_locked);
         }
-        log(`Room '${roomCode}' security updated (locked: ${room.isLocked}, password: ${!!room.password})`);
+        if (data.is_hidden !== undefined) {
+            room.isHidden = Boolean(data.is_hidden);
+        }
+        log(`Room '${roomCode}' security updated (locked: ${room.isLocked}, hidden: ${room.isHidden}, password: ${!!room.password})`);
         broadcastRoomState(roomCode);
         broadcastGlobalLobby();
     });
@@ -1107,6 +1138,13 @@ setInterval(() => {
         }
     }
 }, STATS_INTERVAL_S * 1000);
+
+setInterval(() => {
+    try {
+        if (db.cleanupGuestAccounts) db.cleanupGuestAccounts();
+    } catch(e) { console.error("Guest cleanup error", e); }
+}, 60 * 60 * 1000);
+
 
 
 httpServer.listen(PORT, HOST, () => {

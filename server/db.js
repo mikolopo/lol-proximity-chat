@@ -35,9 +35,25 @@ db.serialize(() => {
         if (!err) {
             // Backfill: use username as email placeholder for existing users
             db.run(`UPDATE users SET email = username WHERE email IS NULL`);
-            console.log("Migrated: added email column");
+}
+    });
+
+    db.run(`ALTER TABLE users ADD COLUMN is_guest INTEGER DEFAULT 0`, (err) => {
+        if (!err) {
+            console.log("Migrated: added is_guest column");
         }
     });
 });
+
+db.cleanupGuestAccounts = () => {
+    db.run(
+        `DELETE FROM users WHERE is_guest = 1 AND created_at < ?`,
+        [Date.now() - 72 * 60 * 60 * 1000], // 72 hours ago
+        function(err) {
+            if (err) console.error("Error cleaning up guest accounts:", err);
+            else if (this.changes > 0) console.log(`Cleaned up ${this.changes} expired guest accounts.`);
+        }
+    );
+};
 
 module.exports = db;

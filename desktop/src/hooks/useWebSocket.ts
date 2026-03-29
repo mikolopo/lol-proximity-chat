@@ -27,6 +27,7 @@ export function useWebSocket(
     socket.on("available_rooms_updated", (data: any) => {
       const serverRooms: RoomInfo[] = (data.rooms || []).map((r: any) => ({
         id: r.code,
+        name: r.name,
         mode: r.type === 'proximity' ? 'proximity' : (r.team_only ? 'team' : 'global'),
         host_id: r.host_id?.toString(),
         is_locked: r.is_locked,

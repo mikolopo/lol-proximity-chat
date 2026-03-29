@@ -8,6 +8,7 @@ export function useAuth(backendUrl: string) {
   const [playerName, setPlayerName] = useState(() =>
     localStorage.getItem("lpc_playerName") || "Player" + Math.floor(Math.random() * 1000)
   );
+  const [isGuest, setIsGuest] = useState<boolean>(() => localStorage.getItem("isGuest") === "true");
   const [appVersion, setAppVersion] = useState("");
 
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -62,9 +63,34 @@ export function useAuth(backendUrl: string) {
       localStorage.setItem("token", data.token);
       if (data.userId) localStorage.setItem("userId", data.userId.toString());
       localStorage.setItem("lpc_playerName", data.displayName);
+      localStorage.setItem("isGuest", data.isGuest ? "true" : "false");
       setAuthToken(data.token);
       setUserId(data.userId);
       setPlayerName(data.displayName);
+      setIsGuest(!!data.isGuest);
+    } catch (err: any) {
+      setAuthError(err.message);
+    }
+  };
+
+  const handleGuestLogin = async () => {
+    setAuthError("");
+    try {
+      const res = await fetch(`${apiBase}/auth/guest`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Guest login failed');
+
+      localStorage.setItem("token", data.token);
+      if (data.userId) localStorage.setItem("userId", data.userId.toString());
+      localStorage.setItem("lpc_playerName", data.displayName);
+      localStorage.setItem("isGuest", "true");
+      setAuthToken(data.token);
+      setUserId(data.userId);
+      setPlayerName(data.displayName);
+      setIsGuest(true);
     } catch (err: any) {
       setAuthError(err.message);
     }
@@ -74,9 +100,11 @@ export function useAuth(backendUrl: string) {
     localStorage.removeItem("token");
     localStorage.removeItem("userId");
     localStorage.removeItem("lpc_playerName");
+    localStorage.removeItem("isGuest");
     setAuthToken(null);
     setUserId(null);
     setPlayerName("Player" + Math.floor(Math.random() * 1000));
+    setIsGuest(false);
     onLogout?.();
   };
 
@@ -135,11 +163,11 @@ export function useAuth(backendUrl: string) {
 
   return {
     // Core identity
-    authToken, userId, playerName, setPlayerName, appVersion, initVersion,
+    authToken, userId, playerName, setPlayerName, isGuest, appVersion, initVersion,
     // Auth form
     authMode, setAuthMode, authEmail, setAuthEmail, authDisplayName, setAuthDisplayName,
     authPassword, setAuthPassword, authConfirmPassword, setAuthConfirmPassword, authError, setAuthError,
-    handleAuthSubmit, handleLogout,
+    handleAuthSubmit, handleGuestLogin, handleLogout,
     // Display name
     displayNameStatus, setDisplayNameStatus, displayNameError, setDisplayNameError, updateDisplayName,
     // Password change

@@ -33,8 +33,19 @@ export function ChannelSidebar({
 }: ChannelSidebarProps) {
   return (
     <div className="w-60 bg-[#2f3136] flex flex-col flex-shrink-0">
-      <div className="h-12 border-b border-[#202225] flex items-center px-4 shadow-[0_1px_2px_rgba(0,0,0,0.2)]">
-        <h2 className="font-bold text-white truncate text-[15px]">{previewRoom?.id || "Home"}</h2>
+      <div className="min-h-[48px] h-[48px] border-b border-[#202225] flex flex-col justify-center px-4 shadow-[0_1px_2px_rgba(0,0,0,0.2)]">
+        <h2 className="font-bold text-white truncate text-[15px] leading-tight">
+          {previewRoom?.name || previewRoom?.id || "Home"}
+        </h2>
+        {previewRoom && previewRoom.id !== previewRoom.name && (
+          <div
+            className="text-[10px] text-[#8e9297] font-mono cursor-pointer hover:text-white truncate leading-tight mt-[1px]"
+            onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(previewRoom.id); }}
+            title="Click to copy Room Code"
+          >
+            #{previewRoom.id} (Click to copy)
+          </div>
+        )}
       </div>
 
       <div className="flex-1 flex flex-col p-2 overflow-y-auto hide-scrollbar">

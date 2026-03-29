@@ -17,6 +17,7 @@ interface AuthPageProps {
   authError: string;
   setAuthError: (v: string) => void;
   handleAuthSubmit: (e: React.FormEvent) => void;
+  handleGuestLogin: () => void;
   // Updater props
   hasUpdate: boolean;
   updateStatus: string;
@@ -29,7 +30,7 @@ export function AuthPage({
   authMode, setAuthMode, authEmail, setAuthEmail,
   authDisplayName, setAuthDisplayName,
   authPassword, setAuthPassword, authConfirmPassword, setAuthConfirmPassword,
-  authError, setAuthError, handleAuthSubmit,
+  authError, setAuthError, handleAuthSubmit, handleGuestLogin,
   hasUpdate, updateStatus, isCheckingUpdate, checkForUpdates,
 }: AuthPageProps) {
   return (
@@ -133,6 +134,16 @@ export function AuthPage({
             {authMode === 'login' ? <LogIn size={18} /> : <Plus size={18} />}
             {authMode === 'login' ? 'LOGIN' : 'REGISTER'}
           </button>
+
+          {authMode === 'login' && (
+            <button
+              type="button"
+              onClick={handleGuestLogin}
+              className="w-full py-2.5 bg-[#4f545c] hover:bg-[#5d6269] text-white rounded font-bold transition-all flex items-center justify-center shadow-lg active:transform active:scale-[0.98]"
+            >
+              PLAY AS GUEST
+            </button>
+          )}
 
           <div
             className="text-sm text-[#8e9297] mt-2 group cursor-pointer text-center select-none"

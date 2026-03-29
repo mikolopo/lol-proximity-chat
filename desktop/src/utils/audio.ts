@@ -1,27 +1,42 @@
+let sharedAudioCtx: AudioContext | null = null;
+
+export function initGlobalAudioContext() {
+  try {
+    if (!sharedAudioCtx) {
+      sharedAudioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    }
+    if (sharedAudioCtx.state === 'suspended') {
+      sharedAudioCtx.resume();
+    }
+  } catch (e) {
+    console.error("Failed to init global audio context", e);
+  }
+}
+
 /**
  * Simple oscillator beep for join/leave notifications.
  */
 export function playNotificationSound(type: 'join' | 'leave') {
+  if (!sharedAudioCtx || sharedAudioCtx.state !== 'running') return;
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
+    const osc = sharedAudioCtx.createOscillator();
+    const gain = sharedAudioCtx.createGain();
     osc.connect(gain);
-    gain.connect(ctx.destination);
+    gain.connect(sharedAudioCtx.destination);
 
     if (type === 'join') {
-      osc.frequency.setValueAtTime(400, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(600, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(400, sharedAudioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(600, sharedAudioCtx.currentTime + 0.1);
     } else {
-      osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(400, ctx.currentTime + 0.1);
+      osc.frequency.setValueAtTime(600, sharedAudioCtx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(400, sharedAudioCtx.currentTime + 0.1);
     }
 
-    gain.gain.setValueAtTime(0.05, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.1);
+    gain.gain.setValueAtTime(0.05, sharedAudioCtx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, sharedAudioCtx.currentTime + 0.1);
 
     osc.start();
-    osc.stop(ctx.currentTime + 0.1);
+    osc.stop(sharedAudioCtx.currentTime + 0.1);
   } catch (_) {
     // Audio context might be blocked by browser policy before interaction
   }
