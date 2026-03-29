@@ -106,9 +106,10 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
           const isBlue = pos.team === 'blue' || teamRosters.blue?.includes(champ);
           const colorClass = isBlue ? 'bg-[#5865f2]' : 'bg-[#ed4245]';
           const isDead = pos.is_dead;
-          // Standard orientation: Blue (0,0) is Bottom-Left, Red (1,1) is Top-Right
-          const leftPercent = (pos.x / 1000) * 100;
-          const bottomPercent = (pos.y / 1000) * 100;
+          // Inverted orientation: If YOLO sends 1000,1000 for Blue (which we expect at Bottom-Left)
+          // we do 100 - percent so that Blue renders at left:0, bottom:0.
+          const leftPercent = 100 - (pos.x / 10);
+          const bottomPercent = 100 - (pos.y / 10);
 
           return (
             <div
