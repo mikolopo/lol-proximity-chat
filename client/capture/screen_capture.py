@@ -261,7 +261,7 @@ class MinimapCapture:
                         now = time.time()
                         
                         if not self._anchor_found:
-                            if now - self._last_anchor_attempt > 5.0:
+                            if now - self._last_anchor_attempt > 1.0:
                                 if rect and len(rect) >= 4:
                                     new_roi, found = compute_minimap_roi(rect[0], rect[1], rect[2], rect[3], self.anchor_dir)
                                     self._last_anchor_attempt = now

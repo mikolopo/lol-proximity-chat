@@ -173,7 +173,7 @@ export function useRoomManagement(
 
   const toggleLiveMap = useCallback((enabled: boolean) => {
     if (voiceManagerRef.current?.socket) {
-      voiceManagerRef.current.socket.emit("update_room_settings", { live_map_enabled: enabled });
+      voiceManagerRef.current.socket.emit("update_room_settings", { map_enabled: enabled });
     }
   }, []);
 

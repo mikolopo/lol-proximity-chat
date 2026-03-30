@@ -108,7 +108,7 @@ export function PopoutMapApp({ roomCode, token, backendUrl, appVersion }: Popout
           const isDead = pos.is_dead;
           // Inverted orientation: If YOLO sends 1000,1000 for Blue (which we expect at Bottom-Left)
           // we do 100 - percent so that Blue renders at left:0, bottom:0.
-          const leftPercent = 100 - (pos.x / 10);
+          const leftPercent = pos.x / 10;
           const bottomPercent = 100 - (pos.y / 10);
 
           return (

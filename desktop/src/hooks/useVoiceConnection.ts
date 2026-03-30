@@ -192,6 +192,7 @@ export function useVoiceConnection(
             setLogs(l => [...l.slice(-50), `[SERVER] ${data.old_name} renamed to ${data.new_name}`]);
           } else if (event === 'player_champion') {
             const abstractId = data.user_id ? data.user_id.toString() : data.player_name;
+            setLogs(l => [...l.slice(-50), `[SERVER] ${data.player_name} is playing ${data.champion_name}`]);
             setPeerChampions(prev => ({ ...prev, [abstractId]: data.champion_name }));
           } else if (event === 'player_positions') {
             setServerMapData(data);
@@ -220,6 +221,7 @@ export function useVoiceConnection(
             });
           } else if (event === 'stream_status_changed') {
             const idToUse = data.user_id ? data.user_id.toString() : data.player_name;
+            setLogs(l => [...l.slice(-50), `[STREAM] ${data.player_name} is ${data.is_streaming ? "LIVE" : "NO LONGER LIVE"}`]);
             if (data.is_streaming) {
               setStreamingPlayers(prev => new Set(prev).add(idToUse));
             } else {
@@ -236,10 +238,12 @@ export function useVoiceConnection(
             setStreamingPlayers(new Set());
             voiceManagerRef.current?.disconnect();
           } else if (event === 'room_settings_updated') {
+            setLogs(l => [...l.slice(-50), `[SERVER] Context configuration updated: ${JSON.stringify(data)}`]);
             setActiveRoom((prev: any) => {
               if (!prev) return prev;
               const updates: any = {};
-              if (data.live_map_enabled !== undefined) updates.live_map_enabled = data.live_map_enabled;
+              // Server sends "map_enabled", client uses "live_map_enabled"
+              if (data.map_enabled !== undefined) updates.live_map_enabled = data.map_enabled;
               return { ...prev, ...updates };
             });
           }

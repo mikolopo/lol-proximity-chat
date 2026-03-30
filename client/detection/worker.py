@@ -263,20 +263,20 @@ class DetectionWorker(threading.Thread):
         fail_count = 0
         while self.running:
             found, score = self.cap.connect()
-            if found:
-                self.voice_client.report_minimap_lock(True, score)
+            self.voice_client.report_minimap_lock(found, score)
+            
+            # Proceed if we have ANY ROI (even fallback), background thread will keep scanning if anchor not found
+            if self.cap.get_roi():
+                print("[DetectionWorker] ROI established (fallback or anchor), proceeding to active loop.")
                 break
             
             fail_count += 1
             if fail_count >= 3:
                 print(f"[DetectionWorker] Connection failed {fail_count} times. Forcing a full rescan...")
                 self.cap.reset_lock()
-                fail_count = 0 # Reset to try 3 more times after fresh lock
+                fail_count = 0
             
-            # Send periodic failed status
-            self.voice_client.report_minimap_lock(False, score)
-            
-            time.sleep(3)
+            time.sleep(1)
             if not self.live.is_available():
                 print("[DetectionWorker] Game ended while waiting for minimap.")
                 return
@@ -296,6 +296,7 @@ class DetectionWorker(threading.Thread):
         last_roster_update = 0
         api_failures = 0
         cv2_window_open = False  # Track if debug window is currently open
+        no_window_frames = 0
 
         try:
             while self.running:
@@ -393,6 +394,16 @@ class DetectionWorker(threading.Thread):
                             if not self.live.is_available():
                                 print("[DetectionWorker] Game ended (Client closed).")
                                 break
+                            
+                            import ctypes
+                            hwnd = ctypes.windll.user32.FindWindowW(None, "League of Legends (TM) Client")
+                            if hwnd == 0:
+                                no_window_frames += 1
+                                if no_window_frames > 2:
+                                    print("[DetectionWorker] Game ended (Window missing for >5s).")
+                                    break
+                            else:
+                                no_window_frames = 0
 
                         alive_status = alive_status or {}
 

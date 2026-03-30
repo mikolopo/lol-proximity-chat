@@ -97,15 +97,37 @@ export function useAuth(backendUrl: string) {
   };
 
   const handleLogout = (onLogout?: () => void) => {
-    localStorage.removeItem("token");
-    localStorage.removeItem("userId");
-    localStorage.removeItem("lpc_playerName");
-    localStorage.removeItem("isGuest");
+    const keysToRemove: string[] = ["token", "userId", "isGuest"];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("lpc_")) {
+        keysToRemove.push(key);
+      }
+    }
+    keysToRemove.forEach(k => localStorage.removeItem(k));
+
     setAuthToken(null);
     setUserId(null);
     setPlayerName("Player" + Math.floor(Math.random() * 1000));
     setIsGuest(false);
+
+    setAuthMode('login');
+    setAuthEmail('');
+    setAuthDisplayName('');
+    setAuthPassword('');
+    setAuthConfirmPassword('');
+    setAuthError('');
+    setDisplayNameStatus('idle');
+    setDisplayNameError('');
+    setShowPasswordModal(false);
+    setPwdOld('');
+    setPwdNew('');
+    setPwdConfirm('');
+    setPwdError('');
+    setPwdStatus('idle');
+
     onLogout?.();
+    window.location.reload();
   };
 
   const updateDisplayName = async () => {

@@ -15,6 +15,9 @@ interface ChannelSidebarProps {
   knownPeers: Set<string>;
   activeSpeakers: Set<string>;
   peerChampions: Record<string, string>;
+  streamingPlayers?: Set<string>;
+  watchedStream?: string | null;
+  setWatchedStream?: (s: string | null) => void;
   handleConnect: (room: RoomInfo) => void;
   handleDisconnect: () => void;
   toggleMic: () => void;
@@ -29,6 +32,7 @@ export function ChannelSidebar({
   previewRoom, activeRoom, isConnected, playerName, userId, localChampion,
   isMicMuted, isDeafened, isStreaming, knownPeers, activeSpeakers, peerChampions,
   handleConnect, handleDisconnect, toggleMic, toggleDeafen, toggleStreaming,
+  streamingPlayers, watchedStream, setWatchedStream,
   setShowSettingsModal, setProfilePopup, handleContextMenu,
 }: ChannelSidebarProps) {
   return (
@@ -76,9 +80,18 @@ export function ChannelSidebar({
                     <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-accent'}`}>
                       {localChampion ? <img src={champImgUrl(localChampion)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = playerName.substring(0, 2); }} /> : playerName.substring(0, 2)}
                     </div>
-                    <span className={`font-medium min-w-0 truncate ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'text-[#3ba55c]' : ''}`}>{playerName}</span>
-                    {activeRoom?.host_id === userId && <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />}
-                    {(isMicMuted || isDeafened) && <MicOff size={14} className="text-[#ed4245] ml-2 mr-1" />}
+                    <span className={`font-medium min-w-0 flex-1 truncate ${activeSpeakers.has(playerName) && (!isMicMuted && !isDeafened) ? 'text-[#3ba55c]' : ''}`}>{playerName}</span>
+                    {isStreaming && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); setWatchedStream?.(watchedStream === playerName ? null : playerName); }}
+                        className={`p-1 px-1.5 ml-1 flex-shrink-0 text-[8px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === playerName ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.5)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
+                        title={watchedStream === playerName ? "Stop watching preview" : "Preview stream"}
+                      >
+                        <Monitor size={10} /> {watchedStream === playerName ? 'WATCHING' : 'LIVE'}
+                      </button>
+                    )}
+                    {activeRoom?.host_id === userId && <Crown size={14} className="text-yellow-500/80 ml-1 flex-shrink-0" />}
+                    {(isMicMuted || isDeafened) && <MicOff size={14} className="text-[#ed4245] ml-1 mr-1 flex-shrink-0" />}
                   </div>
 
                   {/* Remote Peers */}
@@ -97,8 +110,17 @@ export function ChannelSidebar({
                         <div className={`w-6 h-6 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white shadow transition-colors overflow-hidden ${isSpeaking ? 'bg-[#3ba55c] ring-2 ring-[#3ba55c] ring-offset-2 ring-offset-[#2f3136]' : 'bg-[#1e1f22]'}`}>
                           {peerChamp ? <img src={champImgUrl(peerChamp)} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; (e.target as HTMLImageElement).parentElement!.textContent = peer.substring(0, 2); }} /> : peer.substring(0, 2)}
                         </div>
-                        <span className={`font-medium min-w-0 truncate ${isSpeaking ? 'text-[#3ba55c]' : ''}`}>{peer}</span>
-                        {activeRoom?.host_id === peerData?.user_id && <Crown size={14} className="text-yellow-500/80 ml-auto flex-shrink-0" />}
+                        <span className={`font-medium min-w-0 flex-1 truncate ${isSpeaking ? 'text-[#3ba55c]' : ''}`}>{peer}</span>
+                        {streamingPlayers?.has(peer) && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setWatchedStream?.(watchedStream === peer ? null : peer); }}
+                            className={`p-1 px-1.5 ml-1 flex-shrink-0 text-[8px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === peer ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.5)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
+                            title={watchedStream === peer ? "Stop watching" : "Watch stream"}
+                          >
+                            <Monitor size={10} /> {watchedStream === peer ? 'WATCHING' : 'LIVE'}
+                          </button>
+                        )}
+                        {activeRoom?.host_id === peerData?.user_id && <Crown size={14} className="text-yellow-500/80 ml-1 flex-shrink-0" />}
                       </div>
                     );
                   })}

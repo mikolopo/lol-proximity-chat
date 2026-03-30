@@ -69,7 +69,7 @@ export function MatchDashboard({
                   const isDead = pos.is_dead;
                   // Inverted orientation: If YOLO sends 1000,1000 for Blue (which we expect at Bottom-Left)
                   // we do 100 - percent so that Blue renders at left:0, bottom:0.
-                  const leftPercent = 100 - (pos.x / 10);
+                  const leftPercent = pos.x / 10;
                   const bottomPercent = 100 - (pos.y / 10);
 
                   return (
@@ -110,30 +110,33 @@ export function MatchDashboard({
                       const posData = serverMapData.positions?.[champ];
                       const isConnectedToVoice = posData?.is_vc_connected !== undefined ? posData.is_vc_connected : (knownPeers.has(champ) || champ === localChampion);
                       const isProvidingData = posData?.is_providing_data;
+                      
+                      const isLocal = localChampion === champ;
+                      const streamKey = isLocal ? playerName : (Object.keys(peerChampions).find(p => peerChampions[p] === champ) || champ);
 
                       return (
                         <div key={champ} className="flex items-center justify-between bg-[#36393f] p-2 rounded shadow-sm">
-                          <div className="flex items-center gap-3">
+                          <div className="flex items-center gap-3 flex-1 min-w-0">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs uppercase text-white flex-shrink-0 ${!isInGame ? 'bg-[#4f545c]' : (team === 'blue' ? 'bg-[#5865f2]' : 'bg-[#ed4245]')}`}>
                               {champ.substring(0, 2)}
                             </div>
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium text-white">{champ}</span>
+                            <div className="flex flex-col flex-1 min-w-0">
+                              <span className="text-sm font-medium text-white truncate">{champ}</span>
                               {isConnectedToVoice ? (
-                                <span className="text-[10px] text-[#3ba55c] font-semibold">Voice Connected</span>
+                                <span className="text-[10px] text-[#3ba55c] font-semibold truncate">Voice Connected</span>
                               ) : (
-                                <span className="text-[10px] text-[#72767d]">Not in voice</span>
+                                <span className="text-[10px] text-[#72767d] truncate">Not in voice</span>
                               )}
                             </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            {streamingPlayers.has(champ) && (
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            {streamingPlayers.has(streamKey) && (
                               <button
-                                onClick={(e) => { e.stopPropagation(); setWatchedStream(watchedStream === champ ? null : champ); }}
-                                className={`p-1 px-1.5 text-[8px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === champ ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.5)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
-                                title={watchedStream === champ ? "Stop watching" : "Watch stream"}
+                                onClick={(e) => { e.stopPropagation(); setWatchedStream(watchedStream === streamKey ? null : streamKey); }}
+                                className={`p-1 px-1.5 text-[8px] font-bold rounded flex items-center gap-1 transition-colors ${watchedStream === streamKey ? 'bg-[#3ba55c] text-white shadow-[0_0_8px_rgba(59,165,92,0.5)]' : 'bg-[#ed4245] text-white hover:bg-red-600 animate-pulse'}`}
+                                title={watchedStream === streamKey ? "Stop watching" : "Watch stream"}
                               >
-                                <Monitor size={10} /> {watchedStream === champ ? 'WATCH' : 'LIVE'}
+                                <Monitor size={10} /> {watchedStream === streamKey ? 'WATCH' : 'LIVE'}
                               </button>
                             )}
                             {isProvidingData ? (
