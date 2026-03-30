@@ -62,6 +62,10 @@ function App() {
     setToasts(prev => prev.filter(t => t.id !== id));
   };
 
+  // ─── Logs Toggle ───
+  const [showLogs, setShowLogs] = useState(localStorage.getItem('lpc_showLogs') === 'true');
+  useEffect(() => { localStorage.setItem('lpc_showLogs', showLogs.toString()); }, [showLogs]);
+
   // ─── Auth ───
   const auth = useAuth(backendUrl);
 
@@ -367,6 +371,7 @@ function App() {
         playerName={auth.playerName} userId={auth.userId} localChampion={voice.localChampion}
         isMicMuted={voice.isMicMuted} isDeafened={voice.isDeafened} isStreaming={voice.isStreaming}
         knownPeers={voice.knownPeers} activeSpeakers={voice.activeSpeakers} peerChampions={voice.peerChampions}
+        streamingPlayers={voice.streamingPlayers} watchedStream={voice.watchedStream} setWatchedStream={voice.setWatchedStream}
         handleConnect={wrappedConnect} handleDisconnect={wrappedDisconnect}
         toggleMic={voice.toggleMic} toggleDeafen={voice.toggleDeafen} toggleStreaming={toggleStreaming}
         setShowSettingsModal={rooms.setShowSettingsModal}
@@ -381,6 +386,7 @@ function App() {
           chatMessages={chat.chatMessages} chatInput={chat.chatInput} setChatInput={chat.setChatInput}
           chatEndRef={chat.chatEndRef} playerName={auth.playerName} sendChatMessage={chat.sendChatMessage}
           logs={sidecar.logs} setLogs={sidecar.setLogs} logEndRef={sidecar.logEndRef}
+          showLogs={showLogs} setShowLogs={setShowLogs}
         />
         {rooms.activeRoom && rooms.previewRoom?.id === rooms.activeRoom.id && voice.isConnected && (
           <MatchDashboard

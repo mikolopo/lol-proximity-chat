@@ -1,4 +1,4 @@
-import { X, Monitor, LogIn } from "lucide-react";
+import { X, Monitor, LogIn, Terminal } from "lucide-react";
 import type { RoomInfo, ChatMessage } from "../types";
 import { champImgUrl } from "../utils/audio";
 import { ChatPanel } from "./ChatPanel";
@@ -24,13 +24,15 @@ interface MainContentProps {
   logs: string[];
   setLogs: React.Dispatch<React.SetStateAction<string[]>>;
   logEndRef: React.RefObject<HTMLDivElement | null>;
+  showLogs: boolean;
+  setShowLogs: (v: boolean) => void;
 }
 
 export function MainContent({
   previewRoom, activeRoom, isConnected, currentStream, setCurrentStream, setWatchedStream,
   peerChampions, handleConnect,
   chatMessages, chatInput, setChatInput, chatEndRef, playerName, sendChatMessage,
-  logs, setLogs, logEndRef,
+  logs, setLogs, logEndRef, showLogs, setShowLogs,
 }: MainContentProps) {
   const channelName = previewRoom
     ? (previewRoom.mode === 'proximity' ? 'general-proximity' : previewRoom.mode === 'team' ? 'team-voice' : 'global-voice')
@@ -41,14 +43,21 @@ export function MainContent({
       {/* Header bar */}
       <div className="h-12 border-b border-[#202225] flex items-center px-4 shadow-[0_1px_1px_rgba(0,0,0,0.1)]">
         <span className="text-[#8e9297] text-xl font-light mr-2 select-none">#</span>
-        <h2 className="font-semibold text-white text-[15px]">{channelName}</h2>
+        <h2 className="font-semibold text-white text-[15px] mr-auto">{channelName}</h2>
         {currentStream && (
-          <div className="ml-auto flex items-center gap-2 bg-[#4f545c] px-2 py-1 rounded text-[11px] text-white font-bold animate-pulse">
+          <div className="mr-3 flex items-center gap-2 bg-[#4f545c] px-2 py-1 rounded text-[11px] text-white font-bold animate-pulse">
             <div className="w-2 h-2 bg-[#ed4245] rounded-full" />
             LIVE: {currentStream.name}
             <X size={14} className="cursor-pointer hover:text-[#ed4245]" onClick={() => setCurrentStream(null)} />
           </div>
         )}
+        <button 
+          onClick={() => setShowLogs(!showLogs)} 
+          className={`p-1.5 rounded transition-colors ${showLogs ? 'text-accent bg-[#34373c]' : 'text-[#8e9297] hover:text-[#dcddde] hover:bg-[#34373c]'}`}
+          title="Toggle Logs Console"
+        >
+          <Terminal size={18} />
+        </button>
       </div>
 
       <div className="flex-1 flex flex-col p-4 relative overflow-hidden bg-[#202225] gap-4">
@@ -114,7 +123,9 @@ export function MainContent({
         )}
 
         {/* Logs */}
-        <LogsTerminal logs={logs} setLogs={setLogs} logEndRef={logEndRef} />
+        {showLogs && (
+          <LogsTerminal logs={logs} setLogs={setLogs} logEndRef={logEndRef} />
+        )}
       </div>
     </div>
   );
