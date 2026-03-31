@@ -196,6 +196,17 @@ export function useVoiceConnection(
             setPeerChampions(prev => ({ ...prev, [abstractId]: data.champion_name }));
           } else if (event === 'player_positions') {
             setServerMapData(data);
+            // Server-authoritative champion_map: championName → userId
+            const championMap = data.champion_map;
+            if (championMap && typeof championMap === 'object') {
+              const newChamps: Record<string, string> = {};
+              for (const [champName, uid] of Object.entries(championMap)) {
+                if (uid) newChamps[String(uid)] = champName;
+              }
+              if (Object.keys(newChamps).length > 0) {
+                setPeerChampions(prev => ({ ...prev, ...newChamps }));
+              }
+            }
           } else if (event === 'room_state') {
             setActiveRoom((prev: any) => prev ? { ...prev, host_id: data.host_id, players_data: data.players, live_map_enabled: data.live_map_enabled } : null);
             const players = data.players || [];

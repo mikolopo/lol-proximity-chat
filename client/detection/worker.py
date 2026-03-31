@@ -228,13 +228,17 @@ class DetectionWorker(threading.Thread):
             print("[DetectionWorker] Champ select complete. Waiting for game to load...")
             self.voice_client.update_game_phase("loading", roster=roster_data.get("roster"))
 
-            # Wait for Live Client API to become available
+            # Wait for Live Client API to become available (max 120s to handle DCs during loading)
+            loading_start = time.time()
             while self.running and not self.live.is_available():
                 phase = self.lcu.get_gameflow_phase()
                 if phase not in ("GameStart", "InProgress", "Reconnect", "ChampSelect"):
                     print(f"[DetectionWorker] Game failed to launch or dodge occurred (phase: {phase}). Aborting.")
                     self.voice_client.reset_game_state()
                     return None
+                if time.time() - loading_start > 120:
+                    print("[DetectionWorker] Loading screen timeout (120s). Proceeding with champ-select roster.")
+                    break
                 time.sleep(2)
 
         return roster_data

@@ -129,6 +129,8 @@ function createRoom(roomCode, hostId, roomType = ROOM_TYPE_PROXIMITY, teamOnly =
         mergedPositions: new Map(),
         teamRosters: {},
         playerRosters: new Map(), // sid -> { blue: [], red: [] }
+        championOwnership: new Map(), // championName -> userId (server-authoritative)
+        phasePromotionTimer: null, // setTimeout ID for auto-promoting phase
         accessibleUserIds: new Set([hostId]), // Users who can see hidden room
         createdAt: Date.now() / 1000,
         emptySince: Date.now() / 1000, // Tracks how long room has been empty
@@ -692,6 +694,14 @@ io.on("connection", (socket) => {
         const reporterTeam = player.team || data.team || "";
         if (reporterTeam && !player.team) player.team = reporterTeam;
 
+        // Register champion ownership for the reporter
+        if (player.championName && player.userId) {
+            const existing = room.championOwnership.get(player.championName);
+            if (!existing || existing === player.userId) {
+                room.championOwnership.set(player.championName, player.userId);
+            }
+        }
+
         const t = now();
 
         // Update roster if provided
@@ -795,7 +805,14 @@ io.on("connection", (socket) => {
         player.isStreaming = Boolean(data.is_streaming);
         player.lastHeartbeat = now();
 
-        // Broadcast status change to everyone in the room
+        // Explicit stream_status_changed event so all clients get a clear notification
+        io.to(roomCode).emit("stream_status_changed", {
+            player_name: player.playerName,
+            user_id: player.userId,
+            is_streaming: player.isStreaming,
+        });
+
+        // Also broadcast full room state for UI sync
         broadcastRoomState(roomCode);
     });
 
@@ -811,23 +828,16 @@ io.on("connection", (socket) => {
         const newPhase = data.game_phase || PHASE_IN_GAME;
         player.gamePhase = newPhase;
 
-        // Room-level phase = most advanced among players
-        let maxPhaseIdx = 0;
-        for (const p of room.players.values()) {
-            const idx = PHASE_ORDER.indexOf(p.gamePhase);
-            if (idx > maxPhaseIdx) maxPhaseIdx = idx;
-        }
-        const oldPhase = room.gamePhase;
-        room.gamePhase = PHASE_ORDER[maxPhaseIdx] || PHASE_LOBBY;
-
-        // If transitioning back to lobby from a game/loading/select, flush stale data
-        if (oldPhase !== PHASE_LOBBY && room.gamePhase === PHASE_LOBBY) {
-            log(`Room '${roomCode}' transitioning to LOBBY - flushing stale data.`);
-            room.mergedPositions.clear();
-            room.playerRosters.clear();
-        }
-
         if (data.team) player.team = data.team;
+
+        // --- Champion ownership: track which userId owns which champion ---
+        if (player.championName && player.userId) {
+            const existing = room.championOwnership.get(player.championName);
+            // First reporter wins; don't overwrite if already claimed by another user
+            if (!existing || existing === player.userId) {
+                room.championOwnership.set(player.championName, player.userId);
+            }
+        }
 
         const roster = data.roster;
         if (roster && typeof roster === "object") {
@@ -838,8 +848,53 @@ io.on("connection", (socket) => {
             });
         }
 
+        // --- Server-authoritative phase: majority vote + auto-promotion ---
+        const oldPhase = room.gamePhase;
+        const phaseCounts = {};
+        for (const p of room.players.values()) {
+            phaseCounts[p.gamePhase] = (phaseCounts[p.gamePhase] || 0) + 1;
+        }
+
+        // Determine the winning phase: pick the most-advanced phase that has >= 50% of votes
+        let bestPhaseIdx = 0;
+        const totalPlayers = room.players.size;
+        for (let i = PHASE_ORDER.length - 1; i >= 0; i--) {
+            const phase = PHASE_ORDER[i];
+            const count = phaseCounts[phase] || 0;
+            if (count > 0 && (count >= totalPlayers / 2 || count === totalPlayers)) {
+                bestPhaseIdx = i;
+                break;
+            }
+        }
+        room.gamePhase = PHASE_ORDER[bestPhaseIdx] || PHASE_LOBBY;
+
+        // Auto-promotion: if ANY player reports in_game but room is stuck, set a 30s timer
+        if (newPhase === PHASE_IN_GAME && room.gamePhase !== PHASE_IN_GAME && !room.phasePromotionTimer) {
+            log(`Room '${roomCode}' phase auto-promotion timer started (30s) because ${player.playerName} reported in_game`);
+            room.phasePromotionTimer = setTimeout(() => {
+                if (room.gamePhase !== PHASE_IN_GAME) {
+                    log(`Room '${roomCode}' auto-promoted to IN_GAME after 30s timeout`);
+                    room.gamePhase = PHASE_IN_GAME;
+                }
+                room.phasePromotionTimer = null;
+            }, 30000);
+        }
+        // Clear the timer if the room already reached in_game
+        if (room.gamePhase === PHASE_IN_GAME && room.phasePromotionTimer) {
+            clearTimeout(room.phasePromotionTimer);
+            room.phasePromotionTimer = null;
+        }
+
+        // If transitioning back to lobby from a game/loading/select, flush stale data
+        if (oldPhase !== PHASE_LOBBY && room.gamePhase === PHASE_LOBBY) {
+            log(`Room '${roomCode}' transitioning to LOBBY - flushing stale data.`);
+            room.mergedPositions.clear();
+            room.playerRosters.clear();
+            room.championOwnership.clear();
+        }
+
         player.lastHeartbeat = now();
-        log(`${player.playerName} game_phase=${newPhase}, team=${player.team}`);
+        log(`${player.playerName} game_phase=${newPhase}, team=${player.team}, room_phase=${room.gamePhase}`);
     });
 
     // ── voice_data ──
@@ -1145,6 +1200,12 @@ setInterval(() => {
             };
         }
 
+        // Build authoritative champion_map: championName -> userId
+        const championMap = {};
+        for (const [champName, uid] of room.championOwnership) {
+            championMap[champName] = uid;
+        }
+
         // Count providers
         const providers = new Set();
         for (const mp of room.mergedPositions.values()) {
@@ -1158,6 +1219,8 @@ setInterval(() => {
         io.to(roomCode).emit("player_positions", {
             positions: finalPositions,
             team_rosters: room.teamRosters,
+            game_phase: room.gamePhase,
+            champion_map: championMap,
             game_time: t,
             num_providers: providers.size,
             map_enabled: room.mapEnabled,
