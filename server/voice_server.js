@@ -92,6 +92,8 @@ function createPlayer(sid, userId, playerName, roomCode, team = "", gamePhase = 
         x: 500,
         y: 500,
         isDead: false,
+        isMuted: false,
+        isDeafened: false,
         lastHeartbeat: Date.now() / 1000,
     };
 }
@@ -175,7 +177,9 @@ function getRoomsList(requesterUserId = null, requesterSid = null) {
             players_data: [...room.players.values()].map((p) => ({ 
                 name: p.playerName, 
                 champ: p.championName,
-                user_id: p.userId
+                user_id: p.userId,
+                is_muted: p.isMuted,
+                is_deafened: p.isDeafened
             })),
         });
     }
@@ -347,6 +351,8 @@ function broadcastRoomState(roomCode) {
         champ: p.championName,
         team: p.team,
         is_streaming: p.isStreaming || false,
+        is_muted: p.isMuted,
+        is_deafened: p.isDeafened,
         game_phase: p.gamePhase
     }));
 
@@ -787,6 +793,7 @@ io.on("connection", (socket) => {
         socket.to(roomCode).emit("stream_frame", {
             player_name: player.playerName,
             champion_name: player.championName,
+            user_id: player.userId,
             frame: data.frame, // Base64 JPEG
             width: data.width,
             height: data.height
@@ -814,6 +821,30 @@ io.on("connection", (socket) => {
 
         // Also broadcast full room state for UI sync
         broadcastRoomState(roomCode);
+    });
+
+    // ── voice_state ──
+    socket.on("voice_state", (data) => {
+        const roomCode = sidToRoom.get(socket.id);
+        if (!roomCode) return;
+        const room = rooms.get(roomCode);
+        if (!room) return;
+        const player = room.players.get(socket.id);
+        if (!player) return;
+
+        player.isMuted = Boolean(data.is_muted);
+        player.isDeafened = Boolean(data.is_deafened);
+        player.lastHeartbeat = now();
+
+        io.to(roomCode).emit("voice_state_changed", {
+            player_name: player.playerName,
+            user_id: player.userId,
+            is_muted: player.isMuted,
+            is_deafened: player.isDeafened,
+        });
+
+        broadcastRoomState(roomCode);
+        broadcastGlobalLobby();
     });
 
     // ── update_game_phase ──
@@ -1206,17 +1237,27 @@ setInterval(() => {
             championMap[champName] = uid;
         }
 
-        // Count providers
+        // Count providers and build provider reports
         const providers = new Set();
-        for (const mp of room.mergedPositions.values()) {
+        const providerReports = {};
+        for (const [champName, mp] of room.mergedPositions.entries()) {
             for (const [sid, r] of mp.reports) {
-                if (t - r.timestamp < 5.0) providers.add(sid);
+                if (t - r.timestamp < 5.0) {
+                    providers.add(sid);
+                    const p = room.players.get(sid);
+                    if (p) {
+                        const abstractId = p.userId ? p.userId.toString() : p.playerName;
+                        if (!providerReports[abstractId]) providerReports[abstractId] = [];
+                        providerReports[abstractId].push(champName);
+                    }
+                }
             }
         }
 
         // Broadcast using native Socket.IO room broadcast (single call for ALL players)
         const finalPositions = room.mapEnabled ? positions : {};
         io.to(roomCode).emit("player_positions", {
+            provider_reports: providerReports,
             positions: finalPositions,
             team_rosters: room.teamRosters,
             game_phase: room.gamePhase,

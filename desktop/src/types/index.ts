@@ -16,6 +16,8 @@ export interface PlayerData {
   name: string;
   champ: string;
   user_id: string;
+  is_muted?: boolean;
+  is_deafened?: boolean;
 }
 
 export interface ChatMessage {

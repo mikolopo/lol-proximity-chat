@@ -662,6 +662,12 @@ export class VoiceManager {
     }
   }
 
+  public setVoiceState(muted: boolean, deafened: boolean) {
+    if (this.socket && this.socket.connected) {
+        this.socket.emit("voice_state", { is_muted: muted, is_deafened: deafened });
+    }
+  }
+
   disconnect() {
     if (this.syncCheckInterval) {
         clearInterval(this.syncCheckInterval);

@@ -65,10 +65,12 @@ export function useVoiceConnection(
     if (voiceManagerRef.current) {
       voiceManagerRef.current.setMicMuted(nextState);
       voiceManagerRef.current.playSoundEffect(nextState ? 'mute' : 'unmute');
+      voiceManagerRef.current.setVoiceState(nextState, isDeafened);
     }
     if (!nextState && isDeafened) {
       setIsDeafened(false);
       voiceManagerRef.current?.setDeafened(false);
+      voiceManagerRef.current?.setVoiceState(nextState, false);
     }
   }, [isMicMuted, isDeafened]);
 
@@ -83,8 +85,11 @@ export function useVoiceConnection(
     if (nextState) {
       setIsMicMuted(true);
       voiceManagerRef.current?.setMicMuted(true);
+      voiceManagerRef.current?.setVoiceState(true, nextState);
+    } else {
+      voiceManagerRef.current?.setVoiceState(isMicMuted, nextState);
     }
-  }, [isDeafened]);
+  }, [isDeafened, isMicMuted]);
 
   const updatePeerVolume = useCallback((peerId: string, vol: number) => {
     setPeerVolumes(prev => ({ ...prev, [peerId]: vol }));
@@ -240,6 +245,17 @@ export function useVoiceConnection(
               setCurrentStream(prev => prev?.name === data.player_name ? null : prev);
             if (watchedStreamRef.current === idToUse) setWatchedStream(null);
             }
+          } else if (event === 'voice_state_changed') {
+            setActiveRoom((prev: any) => {
+              if (!prev) return prev;
+              const newPlayers = prev.players_data?.map((p: any) => {
+                if ((p.user_id?.toString() || p.name) === (data.user_id?.toString() || data.player_name)) {
+                  return { ...p, is_muted: data.is_muted, is_deafened: data.is_deafened };
+                }
+                return p;
+              });
+              return { ...prev, players_data: newPlayers };
+            });
           } else if (event === 'kicked_from_room') {
             setLogs(l => [...l.slice(-50), `[SERVER] Kicked from room (or room was deleted)`]);
             setIsConnected(false);
@@ -271,6 +287,7 @@ export function useVoiceConnection(
       voiceManagerRef.current.setMicVolume(micVolume);
       voiceManagerRef.current.setHeadphoneVolume(headphoneVolume);
       voiceManagerRef.current.setNoiseGate(noiseGate);
+      voiceManagerRef.current.setVoiceState(isMicMuted, isDeafened);
 
       setActiveRoom(targetRoom);
       setPreviewRoom(targetRoom);

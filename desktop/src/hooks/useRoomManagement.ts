@@ -37,6 +37,15 @@ export function useRoomManagement(
   const [joinRoomPassword, setJoinRoomPassword] = useState("");
   
   useEffect(() => {
+    if (previewRoom) {
+      const refreshed = rooms.find(r => r.id === previewRoom.id);
+      if (refreshed && JSON.stringify(refreshed) !== JSON.stringify(previewRoom)) {
+        setPreviewRoom(refreshed);
+      }
+    }
+  }, [rooms, previewRoom?.id]);
+
+  useEffect(() => {
     const socket = globalSocketRef.current;
     if (!socket) return;
 
